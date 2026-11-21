@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "doctor" | "pharmacist" | "ward_staff" | "nurse";
+export type UserRole = "admin" | "doctor" | "pharmacist" | "ward_staff" | "nurse" | "accountant";
 
 export type SeverityLevel = "Critical" | "Urgent" | "Moderate" | "Routine";
 export type WardType = "ICU" | "Emergency" | "Cardiology" | "General";
@@ -14,12 +14,35 @@ export type WorkspaceTab =
   | "triage"
   | "wards"
   | "pharmacy"
+  | "finance"
+  | "payroll"
+  | "duty_roster"
   | "copilot"
   | "staff_admin"
   | "doctor_portal"
+  | "doctor_shift"
+  | "doctor_patients"
+  | "doctor_prescriptions"
+  | "doctor_library"
   | "pharmacist_portal"
+  | "pharma_overview"
+  | "pharma_prescriptions"
+  | "pharma_inventory"
+  | "pharma_billing"
   | "ward_portal"
-  | "nurse_portal";
+  | "ward_shift"
+  | "ward_beds"
+  | "ward_doctors"
+  | "ward_ai"
+  | "nurse_portal"
+  | "nurse_station"
+  | "nurse_patients"
+  | "nurse_doctors"
+  | "nurse_prescriptions"
+  | "acc_overview"
+  | "acc_sales"
+  | "acc_payroll"
+  | "acc_staff";
 
 export interface UserProfile {
   uid: string;
@@ -78,6 +101,20 @@ export interface PatientVitals {
   temperature: number;
 }
 
+export interface PatientVitalsRecord {
+  id: string;
+  timestamp: string;
+  timeLabel: string;
+  heartRate: number;
+  systolic: number;
+  diastolic: number;
+  bloodPressure: string;
+  spo2: number;
+  temperature: number;
+  loggedBy: string;
+  notes?: string;
+}
+
 export interface Patient {
   id: string;
   name: string;
@@ -85,6 +122,7 @@ export interface Patient {
   gender: "Female" | "Male" | "Other";
   symptoms: string;
   vitals: PatientVitals;
+  vitalsHistory?: PatientVitalsRecord[];
   severity: SeverityLevel;
   department: string;
   assignedBedId: string;
@@ -95,6 +133,78 @@ export interface Patient {
   recommendedActions: string[];
   admittedAt: string;
   createdByUid: string;
+}
+
+export interface StaffDuty {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: UserRole;
+  dutyTitle: string;
+  category: "Emergency" | "ICU" | "OPD" | "Wards" | "OT" | "General";
+  wardOrLocation: string;
+  shiftName: ShiftType;
+  shiftStart: string;
+  shiftEnd: string;
+  date: string;
+  priority: "Routine" | "Moderate" | "Urgent" | "Critical";
+  assignedBy: string;
+  status: "Assigned" | "In Progress" | "Completed";
+  notes?: string;
+  createdAt: string;
+}
+
+export type FinancialDepartment =
+  | "Pharmacy"
+  | "OPD"
+  | "ICU"
+  | "Emergency"
+  | "Surgery"
+  | "Laboratory"
+  | "Radiology";
+
+export interface HospitalSale {
+  id: string;
+  invoiceNumber: string;
+  department: FinancialDepartment;
+  patientId?: string;
+  patientName: string;
+  doctorName?: string;
+  serviceDescription: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  paymentStatus: "Paid" | "Pending" | "Partially Paid";
+  date: string;
+  soldAtLabel: string;
+  recordedBy: string;
+  notes?: string;
+}
+
+export type PayrollStatus = "Paid" | "Pending" | "Processing";
+
+export interface StaffPayrollRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: UserRole;
+  department: string;
+  designation: string;
+  bankName: string;
+  bankAccountNumber: string;
+  ifscOrSwift: string;
+  monthYear: string;
+  baseSalary: number;
+  allowances: number;
+  bonus: number;
+  overtimeHours: number;
+  overtimePay: number;
+  deductions: number;
+  netSalary: number;
+  status: PayrollStatus;
+  paidAt?: string;
+  paidBy?: string;
+  transactionReference?: string;
+  notes?: string;
 }
 
 export interface Bed {

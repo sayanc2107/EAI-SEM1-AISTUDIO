@@ -7,27 +7,38 @@ import React, { useEffect, useState } from "react";
 import {
   Activity,
   BedDouble,
+  BookOpen,
   ClipboardCheck,
+  ClipboardList,
+  Clock,
+  CreditCard,
   HeartPulse,
   LayoutDashboard,
   LogOut,
   Menu,
   MessageSquareText,
+  PackagePlus,
   Pill,
   Plus,
+  Receipt,
   RotateCcw,
   ShieldPlus,
+  Sparkles,
   Stethoscope,
   Users,
   X,
 } from "lucide-react";
+import { AccountantPortalView } from "./components/AccountantPortalView";
 import { CopilotView } from "./components/CopilotView";
 import { DoctorPortalView } from "./components/DoctorPortalView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { HospitalFinancialsView } from "./components/HospitalFinancialsView";
 import { LoginView } from "./components/LoginView";
 import { NursePortalView } from "./components/NursePortalView";
 import { OverviewView } from "./components/OverviewView";
+import { PayrollSystemView } from "./components/PayrollSystemView";
 import { PharmacistPortalView } from "./components/PharmacistPortalView";
+import { ShiftDutyManagementView } from "./components/ShiftDutyManagementView";
 import { StaffDirectoryView } from "./components/StaffDirectoryView";
 import { TriageView } from "./components/TriageView";
 import { WardsView } from "./components/WardsView";
@@ -41,20 +52,48 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const ADMIN_NAV_ITEMS: NavItem[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "triage", label: "ER Triage", icon: Activity },
-  { id: "wards", label: "Wards & Doctors", icon: BedDouble },
-  { id: "pharmacy", label: "Pharmacy & Billing", icon: Pill },
-  { id: "copilot", label: "AI Copilot", icon: MessageSquareText },
-  { id: "staff_admin", label: "Staff & Roles", icon: Users },
-];
-
-const ROLE_PORTAL_NAV: Record<Exclude<UserRole, "admin">, NavItem> = {
-  doctor: { id: "doctor_portal", label: "Doctor Workspace", icon: Stethoscope },
-  pharmacist: { id: "pharmacist_portal", label: "Pharmacy & Billing", icon: Pill },
-  ward_staff: { id: "ward_portal", label: "Ward Operations", icon: ClipboardCheck },
-  nurse: { id: "nurse_portal", label: "Nursing Station", icon: HeartPulse },
+const ROLE_NAV_ITEMS: Record<UserRole, NavItem[]> = {
+  admin: [
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "triage", label: "ER Triage & Vitals", icon: Activity },
+    { id: "wards", label: "Wards & Bed Matrix", icon: BedDouble },
+    { id: "duty_roster", label: "Shift & Duty Roster", icon: Clock },
+    { id: "pharmacy", label: "Pharmacy Dispensing", icon: Pill },
+    { id: "finance", label: "Hospital Financials", icon: Receipt },
+    { id: "payroll", label: "Staff Payroll", icon: CreditCard },
+    { id: "staff_admin", label: "Staff & Roles", icon: Users },
+    { id: "copilot", label: "AI Copilot", icon: MessageSquareText },
+  ],
+  doctor: [
+    { id: "doctor_shift", label: "Shift Schedule & Duties", icon: Clock },
+    { id: "doctor_patients", label: "Allotted Patients", icon: Users },
+    { id: "doctor_prescriptions", label: "Prescriptions", icon: Pill },
+    { id: "doctor_library", label: "Doctor Library", icon: BookOpen },
+  ],
+  nurse: [
+    { id: "nurse_station", label: "Nursing Station & Duties", icon: HeartPulse },
+    { id: "nurse_patients", label: "Allotted Patients & Vitals", icon: Users },
+    { id: "nurse_prescriptions", label: "Patient Prescriptions", icon: Pill },
+    { id: "nurse_doctors", label: "Doctor Directory", icon: Stethoscope },
+  ],
+  ward_staff: [
+    { id: "ward_shift", label: "Shift Schedule & Duties", icon: Clock },
+    { id: "ward_beds", label: "Bed Turnover Matrix", icon: BedDouble },
+    { id: "ward_doctors", label: "On-Duty Doctors", icon: Stethoscope },
+    { id: "ward_ai", label: "AI Transport Predictor", icon: Sparkles },
+  ],
+  pharmacist: [
+    { id: "pharma_overview", label: "Pharmacy Overview", icon: LayoutDashboard },
+    { id: "pharma_prescriptions", label: "Prescription Queue", icon: ClipboardList },
+    { id: "pharma_inventory", label: "Stock & Excel Import", icon: PackagePlus },
+    { id: "pharma_billing", label: "Billing & Sales Ledger", icon: Receipt },
+  ],
+  accountant: [
+    { id: "acc_overview", label: "Financial Overview", icon: LayoutDashboard },
+    { id: "acc_sales", label: "Department Sales", icon: Receipt },
+    { id: "acc_payroll", label: "Staff Payroll", icon: CreditCard },
+    { id: "acc_staff", label: "Staff Directory & Pay", icon: Users },
+  ],
 };
 
 const ROLE_LABELS: Record<UserRole, string> = {
@@ -63,31 +102,62 @@ const ROLE_LABELS: Record<UserRole, string> = {
   pharmacist: "Pharmacist",
   ward_staff: "Ward Staff",
   nurse: "Nurse",
+  accountant: "Hospital Accountant",
 };
 
 const VIEW_BREADCRUMBS: Record<WorkspaceTab, { section: string; title: string }> = {
-  overview: { section: "Admin", title: "Command Overview" },
-  triage: { section: "Admin", title: "ER Triage & Patients" },
-  wards: { section: "Admin", title: "Wards & Doctor Roster" },
-  pharmacy: { section: "Admin", title: "Pharmacy & Billing Desk" },
+  overview: { section: "Admin", title: "Hospital Command Overview" },
+  triage: { section: "Admin", title: "ER Triage & Vitals Monitoring" },
+  wards: { section: "Admin", title: "Wards & Bed Turnover Matrix" },
+  duty_roster: { section: "Admin", title: "Doctor Shifts & Staff Duty Assignments" },
+  pharmacy: { section: "Admin", title: "Pharmacy Dispensing & Cash Desk" },
+  finance: { section: "Admin", title: "Hospital Revenue & Department Sales" },
+  payroll: { section: "Admin", title: "Staff Payroll & Doctor Compensation" },
   copilot: { section: "Admin", title: "AI Operations Copilot" },
   staff_admin: { section: "Admin", title: "Staff Directory & Role Access" },
-  doctor_portal: { section: "Doctor", title: "My Shift, Locations & Patients" },
-  pharmacist_portal: { section: "Pharmacy", title: "Prescriptions, Billing & Stock" },
-  ward_portal: { section: "Ward Staff", title: "My Shift, On-Duty Doctors & AI Predictor" },
-  nurse_portal: { section: "Nursing", title: "My Shift, Allotted Care & AI Predictor" },
+
+  doctor_portal: { section: "Doctor", title: "Shift, Duties & Allotted Patients" },
+  doctor_shift: { section: "Doctor", title: "Shift Schedule & Assigned Duties" },
+  doctor_patients: { section: "Doctor", title: "Allotted Patients & Clinical Care" },
+  doctor_prescriptions: { section: "Doctor", title: "Patient Prescriptions Desk" },
+  doctor_library: { section: "Doctor", title: "Clinical Library & Protocols" },
+
+  nurse_portal: { section: "Nursing", title: "Nursing Station & Allotted Patients" },
+  nurse_station: { section: "Nursing", title: "Nursing Station & AI Predictor" },
+  nurse_patients: { section: "Nursing", title: "Allotted Patients & Bedside Vitals" },
+  nurse_prescriptions: { section: "Nursing", title: "Patient Prescriptions Tracker" },
+  nurse_doctors: { section: "Nursing", title: "Doctor Availability Directory" },
+
+  ward_portal: { section: "Ward Staff", title: "Ward Operations & Turnover" },
+  ward_shift: { section: "Ward Staff", title: "Shift Schedule & Assigned Duties" },
+  ward_beds: { section: "Ward Staff", title: "Bed Turnover & Sanitization" },
+  ward_doctors: { section: "Ward Staff", title: "On-Duty Doctors & Unit Locations" },
+  ward_ai: { section: "Ward Staff", title: "AI Transport & Early Call Predictor" },
+
+  pharmacist_portal: { section: "Pharmacy", title: "Prescriptions, Stock & Billing" },
+  pharma_overview: { section: "Pharmacy", title: "Pharmacy Overview & Stock Insights" },
+  pharma_prescriptions: { section: "Pharmacy", title: "Doctor Prescription Queue" },
+  pharma_inventory: { section: "Pharmacy", title: "Stock & Excel Inventory Import" },
+  pharma_billing: { section: "Pharmacy", title: "Point of Sale Billing Desk" },
+
+  acc_overview: { section: "Accountant", title: "Hospital Financial Dashboard" },
+  acc_sales: { section: "Accountant", title: "Departmental Revenue & Invoices" },
+  acc_payroll: { section: "Accountant", title: "Staff Payroll & Salary Disbursal" },
+  acc_staff: { section: "Accountant", title: "Staff Directory & Compensation" },
 };
 
 function defaultTabForRole(role: UserRole): WorkspaceTab {
   switch (role) {
     case "doctor":
-      return "doctor_portal";
-    case "pharmacist":
-      return "pharmacist_portal";
-    case "ward_staff":
-      return "ward_portal";
+      return "doctor_shift";
     case "nurse":
-      return "nurse_portal";
+      return "nurse_station";
+    case "ward_staff":
+      return "ward_shift";
+    case "pharmacist":
+      return "pharma_overview";
+    case "accountant":
+      return "acc_overview";
     case "admin":
     default:
       return "overview";
@@ -122,15 +192,13 @@ function MedCoreShell() {
     setActiveTab(defaultTabForRole(activeRole));
   }, [activeRole]);
 
-  // Auth gate: strictly render LoginView (with ZERO designation picker) until DB role is resolved
+  // Auth gate: strictly render LoginView until DB role is resolved
   if (authLoading || !firebaseUser || !userProfile || accessDeniedEmail) {
     return <LoginView />;
   }
 
   const currentProfile = userProfile;
-
-  const navItems: NavItem[] =
-    activeRole === "admin" ? ADMIN_NAV_ITEMS : [ROLE_PORTAL_NAV[activeRole]];
+  const navItems: NavItem[] = ROLE_NAV_ITEMS[activeRole] || ROLE_NAV_ITEMS.admin;
 
   const criticalCount = patients.filter(
     (p) => p.status === "Admitted" && p.severity === "Critical"
@@ -197,23 +265,29 @@ function MedCoreShell() {
                     <Icon className="w-4 h-4 shrink-0" />
                     <span>{item.label}</span>
                   </span>
-                  {item.id === "triage" && criticalCount > 0 && (
-                    <span className="text-xs font-mono tabular-nums text-red-400">
-                      {criticalCount}
-                    </span>
-                  )}
-                  {(item.id === "pharmacy" || item.id === "pharmacist_portal") &&
-                    (pendingRxCount > 0 || lowStockCount > 0) && (
-                      <span className="text-xs font-mono tabular-nums text-amber-400">
-                        {pendingRxCount > 0 ? pendingRxCount : lowStockCount}
+                  {(item.id === "triage" || item.id === "doctor_patients" || item.id === "nurse_patients") &&
+                    criticalCount > 0 && (
+                      <span className="text-xs font-mono tabular-nums text-red-400">
+                        {criticalCount}
                       </span>
                     )}
+                  {(item.id === "pharmacy" || item.id === "pharma_prescriptions") &&
+                    pendingRxCount > 0 && (
+                      <span className="text-xs font-mono tabular-nums text-amber-400">
+                        {pendingRxCount}
+                      </span>
+                    )}
+                  {item.id === "pharma_inventory" && lowStockCount > 0 && (
+                    <span className="text-xs font-mono tabular-nums text-red-400">
+                      {lowStockCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
 
-          {/* Admin-Only Live Role Preview Switcher (Hidden from all non-admin staff) */}
+          {/* Admin-Only Live Role Preview Switcher */}
           {isActualAdmin && (
             <div className="px-3 pt-4 border-t border-slate-800/80 space-y-2.5">
               <div className="px-3 text-xs font-medium text-slate-500">
@@ -228,9 +302,10 @@ function MedCoreShell() {
                 >
                   <option value="admin">Admin Command Center</option>
                   <option value="doctor">Doctor Portal</option>
-                  <option value="pharmacist">Pharmacist Portal</option>
-                  <option value="ward_staff">Ward Staff Portal</option>
                   <option value="nurse">Nurse Portal</option>
+                  <option value="ward_staff">Ward Staff Portal</option>
+                  <option value="pharmacist">Pharmacist Portal</option>
+                  <option value="accountant">Accountant Portal</option>
                 </select>
 
                 {activeRole === "doctor" && doctorShiftOptions.length > 0 && (
@@ -393,16 +468,63 @@ function MedCoreShell() {
               {activeTab === "overview" && <OverviewView onNavigate={handleSelectTab} />}
               {activeTab === "triage" && <TriageView />}
               {activeTab === "wards" && <WardsView />}
-              {activeTab === "pharmacy" && <PharmacistPortalView />}
+              {activeTab === "duty_roster" && <ShiftDutyManagementView />}
+              {activeTab === "pharmacy" && <PharmacistPortalView activeSubTab="billing" />}
+              {activeTab === "finance" && <HospitalFinancialsView />}
+              {activeTab === "payroll" && <PayrollSystemView />}
               {activeTab === "copilot" && <CopilotView />}
               {activeTab === "staff_admin" && <StaffDirectoryView />}
             </>
           )}
 
-          {activeRole === "doctor" && <DoctorPortalView />}
-          {activeRole === "pharmacist" && <PharmacistPortalView />}
-          {activeRole === "ward_staff" && <WardStaffPortalView />}
-          {activeRole === "nurse" && <NursePortalView />}
+          {activeRole === "doctor" && (
+            <>
+              {activeTab === "doctor_shift" && <DoctorPortalView activeSubTab="shift" />}
+              {activeTab === "doctor_patients" && <DoctorPortalView activeSubTab="patients" />}
+              {activeTab === "doctor_prescriptions" && <DoctorPortalView activeSubTab="prescriptions" />}
+              {activeTab === "doctor_library" && <DoctorPortalView activeSubTab="library" />}
+              {activeTab === "doctor_portal" && <DoctorPortalView />}
+            </>
+          )}
+
+          {activeRole === "nurse" && (
+            <>
+              {activeTab === "nurse_station" && <NursePortalView activeSubTab="station" />}
+              {activeTab === "nurse_patients" && <NursePortalView activeSubTab="patients" />}
+              {activeTab === "nurse_prescriptions" && <NursePortalView activeSubTab="prescriptions" />}
+              {activeTab === "nurse_doctors" && <NursePortalView activeSubTab="doctors" />}
+              {activeTab === "nurse_portal" && <NursePortalView />}
+            </>
+          )}
+
+          {activeRole === "ward_staff" && (
+            <>
+              {activeTab === "ward_shift" && <WardStaffPortalView activeSubTab="shift" />}
+              {activeTab === "ward_beds" && <WardStaffPortalView activeSubTab="beds" />}
+              {activeTab === "ward_doctors" && <WardStaffPortalView activeSubTab="doctors" />}
+              {activeTab === "ward_ai" && <WardStaffPortalView activeSubTab="ai" />}
+              {activeTab === "ward_portal" && <WardStaffPortalView />}
+            </>
+          )}
+
+          {activeRole === "pharmacist" && (
+            <>
+              {activeTab === "pharma_overview" && <PharmacistPortalView activeSubTab="overview" />}
+              {activeTab === "pharma_prescriptions" && <PharmacistPortalView activeSubTab="prescriptions" />}
+              {activeTab === "pharma_inventory" && <PharmacistPortalView activeSubTab="inventory" />}
+              {activeTab === "pharma_billing" && <PharmacistPortalView activeSubTab="billing" />}
+              {activeTab === "pharmacist_portal" && <PharmacistPortalView />}
+            </>
+          )}
+
+          {activeRole === "accountant" && (
+            <>
+              {activeTab === "acc_overview" && <AccountantPortalView subTab="overview" />}
+              {activeTab === "acc_sales" && <AccountantPortalView subTab="sales" />}
+              {activeTab === "acc_payroll" && <AccountantPortalView subTab="payroll" />}
+              {activeTab === "acc_staff" && <AccountantPortalView subTab="staff" />}
+            </>
+          )}
         </main>
       </div>
 

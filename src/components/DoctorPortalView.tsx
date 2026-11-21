@@ -6,6 +6,7 @@ import {
   Plus,
   Send,
   Sparkles,
+  Stethoscope,
   Trash2,
   UserPlus,
   X,
@@ -52,7 +53,11 @@ function severityColor(severity: SeverityLevel): string {
   }
 }
 
-export function DoctorPortalView() {
+export function DoctorPortalView({
+  activeSubTab,
+}: {
+  activeSubTab?: "shift" | "patients" | "prescriptions" | "library";
+} = {}) {
   const {
     activeStaffId,
     myShift,
@@ -62,6 +67,8 @@ export function DoctorPortalView() {
     beds,
     inventory,
     prescriptions,
+    staffDuties,
+    updateStaffDutyStatus,
     admitPatient,
     updateDoctorLocationAndStatus,
     sendPrescriptionToPharmacy,
@@ -72,6 +79,11 @@ export function DoctorPortalView() {
   const myDoctorRecord = useMemo(
     () => doctorLocations.find((d) => d.doctorId === myDoctorId) || null,
     [doctorLocations, myDoctorId]
+  );
+
+  const myAssignedDuties = useMemo(
+    () => staffDuties.filter((d) => d.staffId === myDoctorId),
+    [staffDuties, myDoctorId]
   );
 
   // Presence update form (Doctor updates own location & status)
@@ -283,92 +295,163 @@ export function DoctorPortalView() {
 
   return (
     <div className="space-y-6">
-      {/* Row 1: My Full Shift (ONLY own shift) + Live Presence Control */}
-      <section className="bg-[#111827] border border-slate-800 rounded-xl p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-          <div className="flex items-start gap-4">
-            <DoctorAvatar
-              name={myShift?.name || myDoctorRecord?.name || "Doctor"}
-              initials={myShift?.initials || myDoctorRecord?.initials || "DR"}
-              avatarUrl={myShift?.avatarUrl || myDoctorRecord?.avatarUrl}
-              size="md"
-            />
-            <div className="space-y-1">
-              <div className="text-xs font-medium uppercase tracking-wider text-sky-400">
-                My Full Shift Schedule
-              </div>
-              <h2 className="text-lg font-semibold text-slate-50">
-                {myShift?.name || myDoctorRecord?.name || "Attending Physician"}
-              </h2>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
-                <span>{myShift?.specialty || myDoctorRecord?.specialty}</span>
-                <span className="text-slate-600">·</span>
-                <span className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-100">
-                  <Clock className="w-3.5 h-3.5 text-sky-400" />
-                  {myShift
-                    ? `${myShift.shiftName} Shift (${myShift.shiftStart} – ${myShift.shiftEnd})`
-                    : `Ends ${myDoctorRecord?.shiftEnd ?? "15:00"}`}
-                </span>
-                {myShift?.breakWindow && (
-                  <>
+      {/* 1. Shift Schedule & Presence Section */}
+      {(!activeSubTab || activeSubTab === "shift") && (
+        <>
+          <section className="bg-[#111827] border border-slate-800 rounded-xl p-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+              <div className="flex items-start gap-4">
+                <DoctorAvatar
+                  name={myShift?.name || myDoctorRecord?.name || "Doctor"}
+                  initials={myShift?.initials || myDoctorRecord?.initials || "DR"}
+                  avatarUrl={myShift?.avatarUrl || myDoctorRecord?.avatarUrl}
+                  size="md"
+                />
+                <div className="space-y-1">
+                  <div className="text-xs font-medium uppercase tracking-wider text-sky-400">
+                    My Full Shift Schedule
+                  </div>
+                  <h2 className="text-lg font-semibold text-slate-50">
+                    {myShift?.name || myDoctorRecord?.name || "Attending Physician"}
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300">
+                    <span>{myShift?.specialty || myDoctorRecord?.specialty}</span>
                     <span className="text-slate-600">·</span>
-                    <span className="text-slate-400 font-mono tabular-nums">
-                      Break: {myShift.breakWindow}
+                    <span className="inline-flex items-center gap-1 font-mono tabular-nums text-slate-100">
+                      <Clock className="w-3.5 h-3.5 text-sky-400" />
+                      {myShift
+                        ? `${myShift.shiftName} Shift (${myShift.shiftStart} – ${myShift.shiftEnd})`
+                        : `Ends ${myDoctorRecord?.shiftEnd ?? "15:00"}`}
                     </span>
-                  </>
-                )}
-                <span className="text-slate-600">·</span>
-                <span className="text-slate-400">
-                  Assigned Ward: <strong className="text-slate-200">{myShift?.assignedWard || "Emergency"}</strong>
-                </span>
+                    {myShift?.breakWindow && (
+                      <>
+                        <span className="text-slate-600">·</span>
+                        <span className="text-slate-400 font-mono tabular-nums">
+                          Break: {myShift.breakWindow}
+                        </span>
+                      </>
+                    )}
+                    <span className="text-slate-600">·</span>
+                    <span className="text-slate-400">
+                      Assigned Ward: <strong className="text-slate-200">{myShift?.assignedWard || "Emergency"}</strong>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Update Own Current Location & Status */}
+              <form
+                onSubmit={handleSavePresence}
+                className="flex flex-wrap items-center gap-2.5 pt-4 lg:pt-0 border-t lg:border-t-0 border-slate-800"
+              >
+                <select
+                  value={myLocation}
+                  onChange={(e) => setMyLocation(e.target.value)}
+                  className="px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                  aria-label="Current location"
+                >
+                  {LOCATION_OPTIONS.map((loc) => (
+                    <option key={loc} value={loc}>
+                      Location: {loc}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={myStatus}
+                  onChange={(e) => setMyStatus(e.target.value as DoctorStatus)}
+                  className="px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                  aria-label="Current duty status"
+                >
+                  {STATUS_OPTIONS.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={savingPresence}
+                  className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-100 transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  {savingPresence ? "Saving..." : "Update Presence"}
+                </button>
+              </form>
+            </div>
+          </section>
+
+          {/* Assigned Duties from Hospital Administrator */}
+          <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-sky-400" />
+                  My Assigned Duties from Administrator ({myAssignedDuties.length})
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Clinical responsibilities and emergency rotations assigned directly by hospital leadership.
+                </p>
               </div>
             </div>
-          </div>
 
-          {/* Update Own Current Location & Status */}
-          <form
-            onSubmit={handleSavePresence}
-            className="flex flex-wrap items-center gap-2.5 pt-4 lg:pt-0 border-t lg:border-t-0 border-slate-800"
-          >
-            <select
-              value={myLocation}
-              onChange={(e) => setMyLocation(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
-              aria-label="Current location"
-            >
-              {LOCATION_OPTIONS.map((loc) => (
-                <option key={loc} value={loc}>
-                  Location: {loc}
-                </option>
-              ))}
-            </select>
-            <select
-              value={myStatus}
-              onChange={(e) => setMyStatus(e.target.value as DoctorStatus)}
-              className="px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
-              aria-label="Current duty status"
-            >
-              {STATUS_OPTIONS.map((st) => (
-                <option key={st} value={st}>
-                  {st}
-                </option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              disabled={savingPresence}
-              className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-100 transition-colors whitespace-nowrap cursor-pointer"
-            >
-              {savingPresence ? "Saving..." : "Update Presence"}
-            </button>
-          </form>
-        </div>
-      </section>
+            {myAssignedDuties.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">
+                No active duty assignments for this shift. Check with Hospital Administration if needed.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {myAssignedDuties.map((duty) => (
+                  <div
+                    key={duty.id}
+                    className="p-4 rounded-xl bg-[#0B1120] border border-slate-800 flex flex-col justify-between gap-3"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-semibold text-sm text-slate-100">{duty.dutyTitle}</div>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            duty.priority === "Critical"
+                              ? "bg-red-950/60 text-red-300 border border-red-800/80"
+                              : "bg-sky-950/60 text-sky-300 border border-sky-800/80"
+                          }`}
+                        >
+                          {duty.priority}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        {duty.notes || "Standard clinical care protocol."}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-slate-400 mt-2 font-mono">
+                        <span className="text-slate-300">{duty.wardOrLocation}</span>
+                        <span>·</span>
+                        <span>{duty.shiftStart} – {duty.shiftEnd}</span>
+                      </div>
+                    </div>
 
-      {/* Row 2: Allotted Patients (Left/Main) + Where Each Doctor Currently Is (Right) */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
-        {/* My Allotted Patients + Manual Add + Send Prescription */}
-        <section className="xl:col-span-8 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-sky-400">
+                        Status: {duty.status}
+                      </span>
+                      {duty.status !== "Completed" && (
+                        <button
+                          type="button"
+                          onClick={() => updateStaffDutyStatus(duty.id, "Completed")}
+                          className="px-2.5 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-semibold cursor-pointer"
+                        >
+                          Mark Completed
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
+      {/* 2. Allotted Patients Section */}
+      {(!activeSubTab || activeSubTab === "patients") && (
+        <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
             <div>
               <h2 className="text-base font-semibold text-slate-100">
@@ -441,68 +524,84 @@ export function DoctorPortalView() {
               ))}
             </div>
           )}
+        </section>
+      )}
 
-          {/* Sent Prescriptions Live Status Tracker */}
-          {mySentPrescriptions.length > 0 && (
-            <div className="pt-4 border-t border-slate-800 space-y-2.5">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Prescriptions Sent to Pharmacy
-              </h3>
-              <div className="divide-y divide-slate-800/70 border border-slate-800 rounded-lg bg-[#0B1120]">
-                {mySentPrescriptions.slice(0, 5).map((rx) => (
-                  <div
-                    key={rx.id}
-                    className="px-4 py-2.5 flex items-center justify-between gap-3 text-xs"
-                  >
-                    <div className="min-w-0">
-                      <span className="font-medium text-slate-200">{rx.patientName}</span>
-                      <span className="text-slate-500 ml-2">
-                        {rx.items.map((i) => `${i.itemName} (×${i.quantity})`).join(", ")}
-                      </span>
+      {/* 3. Prescriptions Desk Section */}
+      {(!activeSubTab || activeSubTab === "prescriptions") && (
+        <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
+          <div className="pb-4 border-b border-slate-800 flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+                <Pill className="w-4 h-4 text-emerald-400" />
+                Prescriptions Sent to Central Pharmacy ({mySentPrescriptions.length})
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Track dispensing status and fulfillment for medications ordered by you.
+              </p>
+            </div>
+          </div>
+
+          {mySentPrescriptions.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">
+              No prescriptions sent yet. Select an allotted patient above to issue a digital Rx.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-800/70 border border-slate-800 rounded-xl bg-[#0B1120] overflow-hidden">
+              {mySentPrescriptions.map((rx) => (
+                <div key={rx.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm text-slate-100">{rx.patientName}</div>
+                    <div className="text-slate-400 mt-0.5">
+                      {rx.items.map((i) => `${i.itemName} (×${i.quantity})`).join(", ")}
                     </div>
-                    <span
-                      className={`font-semibold shrink-0 ${
-                        rx.status === "Ready"
-                          ? "text-emerald-400"
-                          : rx.status === "Dispensed"
-                            ? "text-slate-400"
-                            : "text-sky-400"
-                      }`}
-                    >
-                      {rx.status === "Ready" ? "Ready at Pharmacy" : rx.status}
-                    </span>
+                    {rx.notes && <div className="text-slate-500 mt-1 italic font-sans">{rx.notes}</div>}
                   </div>
-                ))}
-              </div>
+                  <span
+                    className={`font-semibold shrink-0 px-2.5 py-1 rounded text-xs ${
+                      rx.status === "Ready"
+                        ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800/80"
+                        : rx.status === "Dispensed"
+                        ? "bg-slate-800 text-slate-400"
+                        : "bg-sky-950/60 text-sky-300 border border-sky-800/80"
+                    }`}
+                  >
+                    {rx.status === "Ready" ? "Ready at Pharmacy Desk" : rx.status}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
         </section>
+      )}
 
-        {/* Doctor Live Locations ONLY (No other doctors' shift schedules!) */}
-        <section className="xl:col-span-4 bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
+      {/* 4. Doctor Library & Locations Directory */}
+      {(!activeSubTab || activeSubTab === "library") && (
+        <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
           <div className="pb-4 border-b border-slate-800">
-            <h2 className="text-base font-semibold text-slate-100">
-              Doctor Locations Directory
+            <h2 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+              <Stethoscope className="w-4 h-4 text-sky-400" />
+              Doctor Library & Colleague On-Duty Presence
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Live unit/department presence only (ICU, OPD, ER, OT). Other doctors' full shifts are private.
+              Live unit presence and specialties of hospital physicians across ICU, OPD, ER, and OT suites.
             </p>
           </div>
 
-          <div className="space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {doctorLocations.map((doc) => {
               const statusColor =
                 doc.status === "On Duty"
                   ? "text-emerald-400"
                   : doc.status === "In Surgery"
-                    ? "text-amber-400"
-                    : doc.status === "On Call"
-                      ? "text-sky-400"
-                      : "text-slate-500";
+                  ? "text-amber-400"
+                  : doc.status === "On Call"
+                  ? "text-sky-400"
+                  : "text-slate-500";
               return (
                 <div
                   key={doc.doctorId}
-                  className={`p-3.5 rounded-lg bg-[#0B1120] border flex items-center justify-between gap-3 ${
+                  className={`p-4 rounded-xl bg-[#0B1120] border flex flex-col justify-between gap-3 ${
                     doc.doctorId === myDoctorId ? "border-sky-500/50" : "border-slate-800"
                   }`}
                 >
@@ -513,19 +612,19 @@ export function DoctorPortalView() {
                       avatarUrl={doc.avatarUrl}
                     />
                     <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-100 truncate">
+                      <div className="text-sm font-semibold text-slate-100 truncate">
                         {doc.name}
                       </div>
                       <div className="text-xs text-slate-400 truncate">{doc.specialty}</div>
                     </div>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="inline-flex items-center gap-1 text-xs font-semibold text-sky-300">
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                    <div className="inline-flex items-center gap-1 font-semibold text-sky-300">
                       <MapPin className="w-3 h-3" />
                       {doc.location}
                     </div>
-                    <div className={`text-xs font-medium mt-0.5 ${statusColor}`}>
-                      {doc.status}
+                    <div className={`font-semibold ${statusColor}`}>
+                      ● {doc.status}
                     </div>
                   </div>
                 </div>
@@ -533,7 +632,7 @@ export function DoctorPortalView() {
             })}
           </div>
         </section>
-      </div>
+      )}
 
       {/* Modal 1: Manual Add Patient (Allotted to This Doctor) */}
       {showAddPatient && (

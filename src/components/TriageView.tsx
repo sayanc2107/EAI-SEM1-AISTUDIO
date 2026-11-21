@@ -1,13 +1,29 @@
 import React, { useMemo, useState } from "react";
 import {
+  Activity,
   CheckCircle2,
   ClipboardCheck,
+  Clock,
+  HeartPulse,
+  History,
+  PlusCircle,
   Search,
   Sparkles,
+  TrendingUp,
   UserCheck,
   UserMinus,
   X,
 } from "lucide-react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useHospital } from "../context/HospitalContext";
 import { TRIAGE_DEMO_PRESETS } from "../data/seedData";
 import { ApiRequestError, runAITriage } from "../services/aiClient";
@@ -35,7 +51,15 @@ function severityTextClass(severity: SeverityLevel): string {
 }
 
 export function TriageView() {
-  const { patients, beds, doctors, admitPatient, dischargePatient } = useHospital();
+  const {
+    patients,
+    beds,
+    doctors,
+    admitPatient,
+    dischargePatient,
+    logPatientHistoricalVitals,
+    userProfile,
+  } = useHospital();
 
   // Intake Form State
   const [name, setName] = useState("");
@@ -55,11 +79,77 @@ export function TriageView() {
   const [triageError, setTriageError] = useState<{ message: string; hint?: string } | null>(null);
   const [formValidationError, setFormValidationError] = useState<string | null>(null);
 
-  // Registry Filter & Detail Drawer State
+  // Registry Filter & Detail Modal State
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState<"All" | SeverityLevel>("All");
   const [showDischarged, setShowDischarged] = useState(false);
-  const [inspectedPatient, setInspectedPatient] = useState<Patient | null>(null);
+  const [inspectedPatientId, setInspectedPatientId] = useState<string | null>(null);
+  const [modalTab, setModalTab] = useState<"overview" | "history">("overview");
+  const [metricFilter, setMetricFilter] = useState<"all" | "hr" | "bp" | "spo2">("all");
+
+  // Vitals Logging Form State
+  const [logHR, setLogHR] = useState("90");
+  const [logSystolic, setLogSystolic] = useState("120");
+  const [logDiastolic, setLogDiastolic] = useState("80");
+  const [logSpO2, setLogSpO2] = useState("98");
+  const [logTemp, setLogTemp] = useState("98.6");
+  const [logNotes, setLogNotes] = useState("");
+  const [logSaving, setLogSaving] = useState(false);
+
+  const inspectedPatient = useMemo(
+    () => patients.find((p) => p.id === inspectedPatientId) ?? null,
+    [patients, inspectedPatientId]
+  );
+
+  function handleOpenPatient(patient: Patient) {
+    setInspectedPatientId(patient.id);
+    setModalTab("overview");
+    setLogHR(String(patient.vitals.heartRate));
+    const parts = patient.vitals.bloodPressure.split("/").map(Number);
+    setLogSystolic(String(parts[0] || 120));
+    setLogDiastolic(String(parts[1] || 80));
+    setLogSpO2(String(patient.vitals.spo2));
+    setLogTemp(String(patient.vitals.temperature));
+    setLogNotes("");
+  }
+
+  async function handleSaveNewVitals(e: React.FormEvent) {
+    e.preventDefault();
+    if (!inspectedPatient) return;
+    const hr = Number(logHR);
+    const sys = Number(logSystolic);
+    const dia = Number(logDiastolic);
+    const sp = Number(logSpO2);
+    const temp = Number(logTemp);
+
+    if (isNaN(hr) || isNaN(sys) || isNaN(dia) || isNaN(sp) || isNaN(temp)) {
+      return;
+    }
+
+    setLogSaving(true);
+    try {
+      const now = new Date();
+      const timeLabel = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+      const timestamp = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      await logPatientHistoricalVitals(inspectedPatient.id, {
+        timestamp,
+        timeLabel,
+        heartRate: hr,
+        systolic: sys,
+        diastolic: dia,
+        bloodPressure: `${sys}/${dia}`,
+        spo2: sp,
+        temperature: temp,
+        loggedBy: userProfile?.displayName || "Triage Staff",
+        notes: logNotes.trim() || undefined,
+      });
+
+      setLogNotes("");
+    } finally {
+      setLogSaving(false);
+    }
+  }
 
   const availableBeds = useMemo(
     () => beds.filter((b) => b.status === "Available"),
@@ -572,7 +662,7 @@ export function TriageView() {
                   return (
                     <tr
                       key={patient.id}
-                      onClick={() => setInspectedPatient(patient)}
+                      onClick={() => handleOpenPatient(patient)}
                       className="hover:bg-slate-800/40 transition-colors cursor-pointer"
                     >
                       <td className="py-3.5 pr-4">
@@ -634,104 +724,457 @@ export function TriageView() {
         )}
       </section>
 
-      {/* Patient Detail Inspection Modal */}
+      {/* Patient Detail Inspection & Historical Vitals Recharts Modal */}
       {inspectedPatient && (
         <div
-          className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-4"
-          onClick={() => setInspectedPatient(null)}
+          className="fixed inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => setInspectedPatientId(null)}
         >
           <div
-            className="bg-[#111827] border border-slate-800 rounded-xl max-w-xl w-full p-6 space-y-5"
+            className="bg-[#111827] border border-slate-800 rounded-2xl max-w-4xl w-full p-5 sm:p-7 space-y-6 max-h-[92vh] flex flex-col my-auto"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Modal Header */}
             <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-800">
               <div>
-                <h3 className="text-lg font-semibold text-slate-100">{inspectedPatient.name}</h3>
+                <div className="flex items-center gap-2.5">
+                  <h3 className="text-xl font-bold text-slate-100">{inspectedPatient.name}</h3>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                    inspectedPatient.severity === "Critical"
+                      ? "bg-red-950/60 text-red-300 border-red-800/80"
+                      : inspectedPatient.severity === "Urgent"
+                      ? "bg-amber-950/60 text-amber-300 border-amber-800/80"
+                      : "bg-sky-950/60 text-sky-300 border-sky-800/80"
+                  }`}>
+                    {inspectedPatient.severity} Priority
+                  </span>
+                  {inspectedPatient.status === "Discharged" && (
+                    <span className="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full">
+                      Discharged
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  {inspectedPatient.id} · {inspectedPatient.age}y {inspectedPatient.gender} ·{" "}
-                  {inspectedPatient.department} · Bed {inspectedPatient.assignedBedId}
+                  ID: <span className="font-mono text-slate-300">{inspectedPatient.id}</span> · {inspectedPatient.age}y {inspectedPatient.gender} · {inspectedPatient.department} · Bed: <span className="font-mono text-sky-300">{inspectedPatient.assignedBedId}</span> · Admitted: {inspectedPatient.admittedAt}
                 </p>
               </div>
+
               <button
                 type="button"
-                onClick={() => setInspectedPatient(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                onClick={() => setInspectedPatientId(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
                 aria-label="Close patient details"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-4 gap-3 py-2 border-b border-slate-800 text-center">
-              <div>
-                <div className="text-xs text-slate-400">Heart Rate</div>
-                <div className="text-sm font-mono font-semibold text-slate-100 mt-0.5 tabular-nums">
-                  {inspectedPatient.vitals.heartRate} bpm
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Blood Pressure</div>
-                <div className="text-sm font-mono font-semibold text-slate-100 mt-0.5 tabular-nums">
-                  {inspectedPatient.vitals.bloodPressure}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">SpO2</div>
-                <div className="text-sm font-mono font-semibold text-slate-100 mt-0.5 tabular-nums">
-                  {inspectedPatient.vitals.spo2}%
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-400">Temperature</div>
-                <div className="text-sm font-mono font-semibold text-slate-100 mt-0.5 tabular-nums">
-                  {inspectedPatient.vitals.temperature}°F
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <p className="text-xs font-medium text-slate-400">Presenting Symptoms</p>
-                <p className="text-sm text-slate-200 mt-1 leading-relaxed">
-                  {inspectedPatient.symptoms}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400">AI Clinical Rationale</p>
-                <p className="text-sm text-slate-300 mt-1 leading-relaxed">
-                  {inspectedPatient.aiSummary}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-medium text-slate-400 mb-2">Recommended Actions</p>
-                <ul className="space-y-1.5 text-sm text-slate-200">
-                  {inspectedPatient.recommendedActions.map((act, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                      <span>{act}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-3">
-              {inspectedPatient.status === "Admitted" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    dischargePatient(inspectedPatient.id);
-                    setInspectedPatient(null);
-                  }}
-                  className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
-                >
-                  Discharge Patient
-                </button>
-              )}
+            {/* Navigation Tabs Inside Modal */}
+            <div className="flex items-center gap-2 border-b border-slate-800/90 pb-2">
               <button
                 type="button"
-                onClick={() => setInspectedPatient(null)}
-                className="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-semibold cursor-pointer"
+                onClick={() => setModalTab("overview")}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  modalTab === "overview"
+                    ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5" />
+                Clinical Overview
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab("history")}
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  modalTab === "history"
+                    ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                }`}
+              >
+                <HeartPulse className="w-3.5 h-3.5" />
+                Historical Vitals & Chart
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-sky-400 font-mono">
+                  {inspectedPatient.vitalsHistory?.length ?? 0}
+                </span>
+              </button>
+            </div>
+
+            {/* Tab 1: Clinical Overview */}
+            {modalTab === "overview" && (
+              <div className="space-y-5 overflow-y-auto pr-1">
+                {/* 4 Vitals KPI Badges */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-1">
+                  <div className="p-3.5 rounded-xl bg-[#0B1120] border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400">Heart Rate</div>
+                    <div className="text-lg font-mono font-bold text-rose-400 mt-1 tabular-nums">
+                      {inspectedPatient.vitals.heartRate}{" "}
+                      <span className="text-xs font-normal text-slate-500">bpm</span>
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-[#0B1120] border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400">Blood Pressure</div>
+                    <div className="text-lg font-mono font-bold text-sky-400 mt-1 tabular-nums">
+                      {inspectedPatient.vitals.bloodPressure}{" "}
+                      <span className="text-xs font-normal text-slate-500">mmHg</span>
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-[#0B1120] border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400">SpO2 Oxygen</div>
+                    <div className={`text-lg font-mono font-bold mt-1 tabular-nums ${
+                      inspectedPatient.vitals.spo2 < 93 ? "text-amber-400" : "text-emerald-400"
+                    }`}>
+                      {inspectedPatient.vitals.spo2}
+                      <span className="text-xs font-normal text-slate-500">%</span>
+                    </div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-[#0B1120] border border-slate-800 text-center">
+                    <div className="text-xs text-slate-400">Temperature</div>
+                    <div className="text-lg font-mono font-bold text-amber-300 mt-1 tabular-nums">
+                      {inspectedPatient.vitals.temperature}
+                      <span className="text-xs font-normal text-slate-500">°F</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-[#0B1120] border border-slate-800 space-y-4">
+                  <div>
+                    <span className="text-xs font-medium text-slate-400">Presenting Symptoms</span>
+                    <p className="text-sm text-slate-200 mt-1 leading-relaxed">
+                      {inspectedPatient.symptoms}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-slate-400">AI Clinical Rationale</span>
+                    <p className="text-sm text-slate-300 mt-1 leading-relaxed">
+                      {inspectedPatient.aiSummary}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-slate-400 block mb-2">Recommended Clinical Actions</span>
+                    <ul className="space-y-1.5 text-sm text-slate-200">
+                      {inspectedPatient.recommendedActions.map((act, i) => (
+                        <li key={i} className="flex items-start gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+                          <span>{act}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setModalTab("history")}
+                    className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    <TrendingUp className="w-4 h-4" />
+                    Open Vitals Trend Chart & Log New Readings
+                  </button>
+                  {inspectedPatient.status === "Admitted" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        dischargePatient(inspectedPatient.id);
+                        setInspectedPatientId(null);
+                      }}
+                      className="px-4 py-2 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+                    >
+                      Discharge Patient
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab 2: Historical Vitals & Recharts Line Chart */}
+            {modalTab === "history" && (
+              <div className="space-y-5 overflow-y-auto pr-1">
+                {/* Chart Header & Metric Filter Chips */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0B1120] border border-slate-800 p-3.5 rounded-xl">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-sky-400" />
+                      Vitals Longitudinal Trend Line Chart
+                    </h4>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Visualizing progression of Heart Rate, Blood Pressure (Sys/Dia), and SpO2.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMetricFilter("all")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        metricFilter === "all"
+                          ? "bg-sky-500 text-slate-950 font-semibold"
+                          : "bg-slate-800 text-slate-300 hover:text-white"
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMetricFilter("hr")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        metricFilter === "hr"
+                          ? "bg-rose-500 text-white font-semibold"
+                          : "bg-slate-800 text-slate-300 hover:text-white"
+                      }`}
+                    >
+                      Heart Rate
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMetricFilter("bp")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        metricFilter === "bp"
+                          ? "bg-sky-500 text-slate-950 font-semibold"
+                          : "bg-slate-800 text-slate-300 hover:text-white"
+                      }`}
+                    >
+                      BP (Sys/Dia)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMetricFilter("spo2")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        metricFilter === "spo2"
+                          ? "bg-emerald-500 text-slate-950 font-semibold"
+                          : "bg-slate-800 text-slate-300 hover:text-white"
+                      }`}
+                    >
+                      SpO2
+                    </button>
+                  </div>
+                </div>
+
+                {/* Recharts Line Chart Container */}
+                <div className="bg-[#0B1120] border border-slate-800 rounded-xl p-4">
+                  {(inspectedPatient.vitalsHistory?.length ?? 0) === 0 ? (
+                    <div className="py-12 text-center text-xs text-slate-400">
+                      No historical vitals recorded yet. Use the intake form below to log the first record.
+                    </div>
+                  ) : (
+                    <div className="w-full h-72">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart
+                          data={inspectedPatient.vitalsHistory}
+                          margin={{ top: 10, right: 25, left: -10, bottom: 0 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                          <XAxis
+                            dataKey="timeLabel"
+                            stroke="#64748b"
+                            tick={{ fill: "#94a3b8", fontSize: 11 }}
+                          />
+                          <YAxis
+                            stroke="#64748b"
+                            tick={{ fill: "#94a3b8", fontSize: 11 }}
+                            domain={["auto", "auto"]}
+                          />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: "#0B1120",
+                              borderColor: "#334155",
+                              borderRadius: "0.75rem",
+                              fontSize: "12px",
+                              color: "#f8fafc",
+                              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.5)",
+                            }}
+                          />
+                          <Legend
+                            wrapperStyle={{ paddingTop: "10px", fontSize: "12px" }}
+                          />
+                          {(metricFilter === "all" || metricFilter === "hr") && (
+                            <Line
+                              type="monotone"
+                              dataKey="heartRate"
+                              name="Heart Rate (bpm)"
+                              stroke="#f43f5e"
+                              strokeWidth={2.5}
+                              dot={{ r: 4, fill: "#f43f5e" }}
+                              activeDot={{ r: 6 }}
+                            />
+                          )}
+                          {(metricFilter === "all" || metricFilter === "bp") && (
+                            <Line
+                              type="monotone"
+                              dataKey="systolic"
+                              name="Systolic BP (mmHg)"
+                              stroke="#38bdf8"
+                              strokeWidth={2.5}
+                              dot={{ r: 4, fill: "#38bdf8" }}
+                              activeDot={{ r: 6 }}
+                            />
+                          )}
+                          {(metricFilter === "all" || metricFilter === "bp") && (
+                            <Line
+                              type="monotone"
+                              dataKey="diastolic"
+                              name="Diastolic BP (mmHg)"
+                              stroke="#818cf8"
+                              strokeWidth={2.5}
+                              dot={{ r: 4, fill: "#818cf8" }}
+                              activeDot={{ r: 6 }}
+                            />
+                          )}
+                          {(metricFilter === "all" || metricFilter === "spo2") && (
+                            <Line
+                              type="monotone"
+                              dataKey="spo2"
+                              name="SpO2 (%)"
+                              stroke="#10b981"
+                              strokeWidth={2.5}
+                              dot={{ r: 4, fill: "#10b981" }}
+                              activeDot={{ r: 6 }}
+                            />
+                          )}
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+
+                {/* Form to Log New Patient Vitals */}
+                <form
+                  onSubmit={handleSaveNewVitals}
+                  className="bg-[#0B1120] border border-slate-800 rounded-xl p-4 space-y-3.5"
+                >
+                  <div className="flex items-center justify-between">
+                    <h5 className="text-xs font-semibold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                      <PlusCircle className="w-4 h-4" />
+                      Log New Patient Vitals Entry
+                    </h5>
+                    <span className="text-[11px] text-slate-400">
+                      Logged by: <strong className="text-slate-200">{userProfile?.displayName || "Triage Staff"}</strong>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Heart Rate (bpm)</label>
+                      <input
+                        type="number"
+                        required
+                        value={logHR}
+                        onChange={(e) => setLogHR(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Systolic BP</label>
+                      <input
+                        type="number"
+                        required
+                        value={logSystolic}
+                        onChange={(e) => setLogSystolic(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Diastolic BP</label>
+                      <input
+                        type="number"
+                        required
+                        value={logDiastolic}
+                        onChange={(e) => setLogDiastolic(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">SpO2 (%)</label>
+                      <input
+                        type="number"
+                        min={50}
+                        max={100}
+                        required
+                        value={logSpO2}
+                        onChange={(e) => setLogSpO2(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-slate-400 mb-1">Temp (°F)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        required
+                        value={logTemp}
+                        onChange={(e) => setLogTemp(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center gap-3">
+                    <input
+                      type="text"
+                      placeholder="Optional clinical observation notes (e.g. Nebulizer given, patient calm)..."
+                      value={logNotes}
+                      onChange={(e) => setLogNotes(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-200 focus:border-sky-500 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={logSaving}
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-60 text-slate-950 text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer shrink-0"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      {logSaving ? "Logging..." : "Log Vitals & Update Chart"}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Historical Vitals Table */}
+                <div className="bg-[#0B1120] border border-slate-800 rounded-xl p-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                    <h5 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-slate-400" />
+                      Logged Historical Vitals Records ({inspectedPatient.vitalsHistory?.length ?? 0})
+                    </h5>
+                  </div>
+                  <div className="overflow-x-auto mt-2">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2 pr-3 font-medium">Time</th>
+                          <th className="py-2 px-2 font-medium">Heart Rate</th>
+                          <th className="py-2 px-2 font-medium">Blood Pressure</th>
+                          <th className="py-2 px-2 font-medium">SpO2</th>
+                          <th className="py-2 px-2 font-medium">Temperature</th>
+                          <th className="py-2 px-2 font-medium">Logged By</th>
+                          <th className="py-2 pl-2 font-medium">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {(inspectedPatient.vitalsHistory ?? []).map((vh) => (
+                          <tr key={vh.id} className="hover:bg-slate-800/30">
+                            <td className="py-2 pr-3 text-slate-300 font-sans">{vh.timestamp}</td>
+                            <td className="py-2 px-2 text-rose-400 font-bold">{vh.heartRate} bpm</td>
+                            <td className="py-2 px-2 text-sky-400">{vh.bloodPressure}</td>
+                            <td className="py-2 px-2 text-emerald-400">{vh.spo2}%</td>
+                            <td className="py-2 px-2 text-amber-300">{vh.temperature}°F</td>
+                            <td className="py-2 px-2 text-slate-400 font-sans">{vh.loggedBy}</td>
+                            <td className="py-2 pl-2 text-slate-300 font-sans max-w-xs truncate">
+                              {vh.notes || "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Footer */}
+            <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setInspectedPatientId(null)}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer transition-colors"
               >
                 Close
               </button>

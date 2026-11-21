@@ -261,7 +261,7 @@ export function LoginView() {
 
                 {showSampleDirectory && (
                   <div className="rounded-lg border border-slate-800 bg-[#0B1120] divide-y divide-slate-800/80 overflow-hidden">
-                    {SAMPLE_STAFF_CREDENTIALS.slice(0, 5).map((cred) => (
+                    {SAMPLE_STAFF_CREDENTIALS.map((cred) => (
                       <div
                         key={cred.staffId}
                         className="px-3 py-2 flex items-center justify-between gap-2 text-xs"

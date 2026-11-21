@@ -19,6 +19,7 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
   { value: "pharmacist", label: "Pharmacist" },
   { value: "ward_staff", label: "Ward Staff" },
   { value: "nurse", label: "Nurse" },
+  { value: "accountant", label: "Accountant" },
   { value: "admin", label: "Hospital Admin" },
 ];
 

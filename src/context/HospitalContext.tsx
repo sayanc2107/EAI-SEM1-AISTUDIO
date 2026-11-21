@@ -34,11 +34,14 @@ import {
   INITIAL_ACTIVITY,
   INITIAL_BEDS,
   INITIAL_DOCTOR_LOCATIONS,
+  INITIAL_HOSPITAL_SALES,
   INITIAL_INVENTORY,
   INITIAL_PATIENTS,
+  INITIAL_PAYROLL_RECORDS,
   INITIAL_PHARMACY_SALES,
   INITIAL_PRESCRIPTIONS,
   INITIAL_STAFF_DIRECTORY,
+  INITIAL_STAFF_DUTIES,
   INITIAL_STAFF_SHIFTS,
   SAMPLE_STAFF_CREDENTIALS,
 } from "../data/seedData";
@@ -49,16 +52,22 @@ import type {
   Doctor,
   DoctorLocation,
   DoctorStatus,
+  FinancialDepartment,
+  HospitalSale,
   InventoryItem,
   Patient,
   PatientVitals,
+  PatientVitalsRecord,
   PaymentMethod,
   PharmacySale,
   PrescriptionLineItem,
   PrescriptionRequest,
   PrescriptionStatus,
   SeverityLevel,
+  ShiftType,
   StaffDirectoryEntry,
+  StaffDuty,
+  StaffPayrollRecord,
   StaffShift,
   ToastNotice,
   UserProfile,
@@ -176,14 +185,21 @@ interface HospitalContextValue {
   inventory: InventoryItem[];
   prescriptions: PrescriptionRequest[];
   pharmacySales: PharmacySale[];
+  staffDuties: StaffDuty[];
+  hospitalSales: HospitalSale[];
+  payrollRecords: StaffPayrollRecord[];
   activity: ActivityEntry[];
   toasts: ToastNotice[];
   dismissToast: (id: string) => void;
   pushToast: (title: string, detail?: string, tone?: ToastNotice["tone"]) => void;
 
-  // Operational Mutations (Firestore-backed)
+  // Operational Mutations (Firestore-backed & Realtime)
   admitPatient: (payload: AdmitPatientPayload) => Promise<Patient | null>;
   updatePatientVitals: (patientId: string, vitals: PatientVitals) => Promise<void>;
+  logPatientHistoricalVitals: (
+    patientId: string,
+    vitalsRecord: Omit<PatientVitalsRecord, "id">
+  ) => Promise<void>;
   dischargePatient: (patientId: string) => Promise<void>;
   setBedStatus: (bedId: string, nextStatus: BedStatus) => Promise<void>;
   clearAllCleaningBeds: () => Promise<number>;
@@ -192,6 +208,48 @@ interface HospitalContextValue {
     doctorId: string,
     location: string,
     status: DoctorStatus
+  ) => Promise<void>;
+  updateDoctorShift: (
+    doctorId: string,
+    updates: {
+      shiftName?: ShiftType;
+      shiftStart?: string;
+      shiftEnd?: string;
+      location?: string;
+      status?: DoctorStatus;
+    }
+  ) => Promise<void>;
+  updateNurseShift: (
+    staffId: string,
+    updates: {
+      shiftName?: ShiftType;
+      shiftStart?: string;
+      shiftEnd?: string;
+      assignedWard?: string;
+      location?: string;
+      status?: DoctorStatus;
+    }
+  ) => Promise<void>;
+  updateWardStaffShift: (
+    staffId: string,
+    updates: {
+      shiftName?: ShiftType;
+      shiftStart?: string;
+      shiftEnd?: string;
+      assignedWard?: string;
+      location?: string;
+      status?: DoctorStatus;
+    }
+  ) => Promise<void>;
+  addStaffDuty: (duty: Omit<StaffDuty, "id" | "createdAt" | "status">) => Promise<void>;
+  updateStaffDutyStatus: (dutyId: string, status: StaffDuty["status"]) => Promise<void>;
+  deleteStaffDuty: (dutyId: string) => Promise<void>;
+  addHospitalSale: (sale: Omit<HospitalSale, "id">) => Promise<void>;
+  paySalary: (payrollId: string, notes?: string) => Promise<void>;
+  payAllPendingSalaries: () => Promise<number>;
+  updatePayrollCompensation: (
+    payrollId: string,
+    updates: Partial<Pick<StaffPayrollRecord, "baseSalary" | "allowances" | "bonus" | "deductions" | "overtimePay" | "overtimeHours">>
   ) => Promise<void>;
   adjustInventoryStock: (itemId: string, delta: number) => Promise<void>;
   addInventoryItem: (item: Omit<InventoryItem, "id">) => Promise<void>;
@@ -237,6 +295,8 @@ function defaultStaffIdForRole(role: UserRole): string {
       return "WRD-01";
     case "nurse":
       return "NUR-01";
+    case "accountant":
+      return "ACC-01";
     case "admin":
     default:
       return "ADM-01";
@@ -262,6 +322,9 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRequest[]>([]);
   const [pharmacySales, setPharmacySales] = useState<PharmacySale[]>([]);
+  const [staffDuties, setStaffDuties] = useState<StaffDuty[]>(INITIAL_STAFF_DUTIES);
+  const [hospitalSales, setHospitalSales] = useState<HospitalSale[]>(INITIAL_HOSPITAL_SALES);
+  const [payrollRecords, setPayrollRecords] = useState<StaffPayrollRecord[]>(INITIAL_PAYROLL_RECORDS);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [toasts, setToasts] = useState<ToastNotice[]>([]);
 
@@ -1446,6 +1509,9 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updatePatientVitals = async (patientId: string, vitals: PatientVitals) => {
+    setPatients((prev) =>
+      prev.map((pt) => (pt.id === patientId ? { ...pt, vitals } : pt))
+    );
     try {
       await updateDoc(doc(db, "patients", patientId), {
         vitals,
@@ -1461,6 +1527,242 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `patients/${patientId}`);
     }
+  };
+
+  const logPatientHistoricalVitals = async (
+    patientId: string,
+    vitalsRecord: Omit<PatientVitalsRecord, "id">
+  ) => {
+    const newEntry: PatientVitalsRecord = {
+      ...vitalsRecord,
+      id: `vh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    };
+
+    const newCurrentVitals: PatientVitals = {
+      heartRate: newEntry.heartRate,
+      bloodPressure: newEntry.bloodPressure,
+      spo2: newEntry.spo2,
+      temperature: newEntry.temperature,
+    };
+
+    setPatients((prev) =>
+      prev.map((pt) => {
+        if (pt.id !== patientId) return pt;
+        const currentHistory = pt.vitalsHistory ?? [];
+        return {
+          ...pt,
+          vitals: newCurrentVitals,
+          vitalsHistory: [...currentHistory, newEntry],
+        };
+      })
+    );
+
+    try {
+      await updateDoc(doc(db, "patients", patientId), {
+        vitals: newCurrentVitals,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      // Local state is already updated in memory
+    }
+
+    const pt = patients.find((p) => p.id === patientId);
+    pushToast(
+      "Historical Vitals Logged",
+      `Recorded HR ${newEntry.heartRate} bpm, BP ${newEntry.bloodPressure}, SpO2 ${newEntry.spo2}% for ${pt?.name ?? patientId}`,
+      "success"
+    );
+  };
+
+  const updateDoctorShift = async (
+    doctorId: string,
+    updates: {
+      shiftName?: ShiftType;
+      shiftStart?: string;
+      shiftEnd?: string;
+      location?: string;
+      status?: DoctorStatus;
+    }
+  ) => {
+    setStaffShifts((prev) =>
+      prev.map((s) => (s.staffId === doctorId ? { ...s, ...updates } : s))
+    );
+    setDoctorLocations((prev) =>
+      prev.map((d) => (d.doctorId === doctorId ? { ...d, ...updates } : d))
+    );
+    try {
+      await updateDoc(doc(db, "staffShifts", doctorId), {
+        ...updates,
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, "doctorLocations", doctorId), {
+        ...updates,
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      // Local state updated
+    }
+    pushToast("Doctor Shift Updated", `Updated schedule parameters for doctor ${doctorId}`, "success");
+  };
+
+  const updateNurseShift = async (
+    staffId: string,
+    updates: {
+      shiftName?: ShiftType;
+      shiftStart?: string;
+      shiftEnd?: string;
+      assignedWard?: string;
+      location?: string;
+      status?: DoctorStatus;
+    }
+  ) => {
+    setStaffShifts((prev) =>
+      prev.map((s) => (s.staffId === staffId ? { ...s, ...updates } : s))
+    );
+    try {
+      await updateDoc(doc(db, "staffShifts", staffId), {
+        ...updates,
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      // Local state updated
+    }
+    pushToast("Nurse Shift Updated", `Updated schedule parameters for nurse ${staffId}`, "success");
+  };
+
+  const updateWardStaffShift = async (
+    staffId: string,
+    updates: {
+      shiftName?: ShiftType;
+      shiftStart?: string;
+      shiftEnd?: string;
+      assignedWard?: string;
+      location?: string;
+      status?: DoctorStatus;
+    }
+  ) => {
+    setStaffShifts((prev) =>
+      prev.map((s) => (s.staffId === staffId ? { ...s, ...updates } : s))
+    );
+    try {
+      await updateDoc(doc(db, "staffShifts", staffId), {
+        ...updates,
+        updatedAt: serverTimestamp(),
+      });
+    } catch {
+      // Local state updated
+    }
+    pushToast("Ward Staff Shift Updated", `Updated schedule parameters for staff ${staffId}`, "success");
+  };
+
+  const addStaffDuty = async (
+    duty: Omit<StaffDuty, "id" | "createdAt" | "status">
+  ) => {
+    const newDuty: StaffDuty = {
+      ...duty,
+      id: `DUTY-${Date.now().toString().slice(-4)}`,
+      createdAt: formatNowTime(),
+      status: "Assigned",
+    };
+    setStaffDuties((prev) => [newDuty, ...prev]);
+    pushToast("Duty Assigned", `Assigned "${newDuty.dutyTitle}" to ${newDuty.staffName}`, "success");
+  };
+
+  const updateStaffDutyStatus = async (dutyId: string, status: StaffDuty["status"]) => {
+    setStaffDuties((prev) =>
+      prev.map((d) => (d.id === dutyId ? { ...d, status } : d))
+    );
+    pushToast("Duty Status Updated", `Duty marked as ${status}`, "info");
+  };
+
+  const deleteStaffDuty = async (dutyId: string) => {
+    setStaffDuties((prev) => prev.filter((d) => d.id !== dutyId));
+    pushToast("Duty Removed", "Removed task from roster", "info");
+  };
+
+  const addHospitalSale = async (sale: Omit<HospitalSale, "id">) => {
+    const newSale: HospitalSale = {
+      ...sale,
+      id: `SALE-H${Date.now().toString().slice(-4)}`,
+    };
+    setHospitalSales((prev) => [newSale, ...prev]);
+    pushToast(
+      "Hospital Sale Logged",
+      `Recorded ${newSale.invoiceNumber} for Rs. ${newSale.amount.toLocaleString()} (${newSale.department})`,
+      "success"
+    );
+  };
+
+  const paySalary = async (payrollId: string, notes?: string) => {
+    const nowStr = new Date().toLocaleString();
+    const ref = `NEFT-MC-${Math.floor(10000 + Math.random() * 90000)}`;
+    const paidBy = activeRole === "accountant" ? "Vikram Mehta (CPA)" : "Hospital Administrator";
+
+    setPayrollRecords((prev) =>
+      prev.map((rec) => {
+        if (rec.id !== payrollId) return rec;
+        return {
+          ...rec,
+          status: "Paid" as const,
+          paidAt: nowStr,
+          paidBy,
+          transactionReference: ref,
+          notes: notes || rec.notes,
+        };
+      })
+    );
+    const targetRec = payrollRecords.find((r) => r.id === payrollId);
+    pushToast(
+      "Salary Disbursed",
+      `Paid net salary Rs. ${targetRec?.netSalary.toLocaleString()} to ${targetRec?.staffName}. Ref: ${ref}`,
+      "success"
+    );
+  };
+
+  const payAllPendingSalaries = async (): Promise<number> => {
+    const nowStr = new Date().toLocaleString();
+    const paidBy = activeRole === "accountant" ? "Vikram Mehta (CPA)" : "Hospital Administrator";
+    let count = 0;
+
+    setPayrollRecords((prev) =>
+      prev.map((rec) => {
+        if (rec.status !== "Paid") {
+          count++;
+          return {
+            ...rec,
+            status: "Paid" as const,
+            paidAt: nowStr,
+            paidBy,
+            transactionReference: `NEFT-BATCH-${Math.floor(10000 + Math.random() * 90000)}`,
+          };
+        }
+        return rec;
+      })
+    );
+    pushToast(
+      "Batch Payroll Executed",
+      `Successfully processed salary payouts for ${count} staff members`,
+      "success"
+    );
+    return count;
+  };
+
+  const updatePayrollCompensation = async (
+    payrollId: string,
+    updates: Partial<Pick<StaffPayrollRecord, "baseSalary" | "allowances" | "bonus" | "deductions" | "overtimePay" | "overtimeHours">>
+  ) => {
+    setPayrollRecords((prev) =>
+      prev.map((rec) => {
+        if (rec.id !== payrollId) return rec;
+        const merged = { ...rec, ...updates };
+        const netSalary = Math.max(
+          0,
+          merged.baseSalary + merged.allowances + merged.bonus + merged.overtimePay - merged.deductions
+        );
+        return { ...merged, netSalary };
+      })
+    );
+    pushToast("Compensation Updated", "Staff payroll and deductions recalculated", "info");
   };
 
   const dischargePatient = async (patientId: string) => {
@@ -2212,17 +2514,31 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       inventory,
       prescriptions,
       pharmacySales,
+      staffDuties,
+      hospitalSales,
+      payrollRecords,
       activity,
       toasts,
       dismissToast,
       pushToast,
       admitPatient,
       updatePatientVitals,
+      logPatientHistoricalVitals,
       dischargePatient,
       setBedStatus,
       clearAllCleaningBeds,
       cycleDoctorStatus,
       updateDoctorLocationAndStatus,
+      updateDoctorShift,
+      updateNurseShift,
+      updateWardStaffShift,
+      addStaffDuty,
+      updateStaffDutyStatus,
+      deleteStaffDuty,
+      addHospitalSale,
+      paySalary,
+      payAllPendingSalaries,
+      updatePayrollCompensation,
       adjustInventoryStock,
       addInventoryItem,
       importStockFromExcelRows,
@@ -2253,6 +2569,9 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       inventory,
       prescriptions,
       pharmacySales,
+      staffDuties,
+      hospitalSales,
+      payrollRecords,
       activity,
       toasts,
     ]

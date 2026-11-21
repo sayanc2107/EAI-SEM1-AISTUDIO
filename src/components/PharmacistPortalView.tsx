@@ -51,7 +51,11 @@ function formatINR(amount: number): string {
   return `₹${Math.round(amount).toLocaleString("en-IN")}`;
 }
 
-export function PharmacistPortalView() {
+export function PharmacistPortalView({
+  activeSubTab,
+}: {
+  activeSubTab?: "overview" | "prescriptions" | "inventory" | "billing";
+} = {}) {
   const {
     myShift,
     inventory,
@@ -67,7 +71,23 @@ export function PharmacistPortalView() {
     pushToast,
   } = useHospital();
 
-  const [tab, setTab] = useState<PharmacyTab>("queue_billing");
+  const initialTab: PharmacyTab =
+    activeSubTab === "overview"
+      ? "ai_insights"
+      : activeSubTab === "inventory"
+        ? "stock_excel"
+        : activeSubTab === "billing"
+          ? "sales_ledger"
+          : "queue_billing";
+
+  const [tab, setTab] = useState<PharmacyTab>(initialTab);
+
+  React.useEffect(() => {
+    if (activeSubTab === "overview") setTab("ai_insights");
+    else if (activeSubTab === "inventory") setTab("stock_excel");
+    else if (activeSubTab === "billing") setTab("sales_ledger");
+    else if (activeSubTab === "prescriptions") setTab("queue_billing");
+  }, [activeSubTab]);
 
   // Billing Desk state
   const [activeRxId, setActiveRxId] = useState<string | null>(null);
