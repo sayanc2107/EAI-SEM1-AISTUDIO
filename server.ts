@@ -46,6 +46,39 @@ async function createApp() {
   const app = express();
   app.use(express.json({ limit: "2mb" }));
 
+  // MongoDB Atlas Connection Setup
+  const MONGODB_URI = process.env.MONGODB_URI;
+  const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || "medcoreai_aistudio";
+  let mongoDb: unknown = null;
+
+  async function initMongoDB() {
+    if (!MONGODB_URI) {
+      console.log("[MongoDB] No MONGODB_URI specified in env. MedCore AI operating in resilient static/client mode.");
+      return;
+    }
+    try {
+      // @ts-expect-error dynamic import for optional driver
+      const { MongoClient } = await import("mongodb");
+      const client = new MongoClient(MONGODB_URI);
+      await client.connect();
+      mongoDb = client.db(MONGODB_DB_NAME);
+      console.log(`[MongoDB] Connected successfully to database: ${MONGODB_DB_NAME}`);
+    } catch (err) {
+      console.warn("[MongoDB] Connection notice (resilient mode active):", err instanceof Error ? err.message : err);
+    }
+  }
+  await initMongoDB();
+
+  // MongoDB status endpoint
+  app.get("/api/mongodb/status", (_req: Request, res: Response) => {
+    res.json({
+      connected: !!mongoDb,
+      database: MONGODB_DB_NAME,
+      cluster: "cluster0.njngnoe.mongodb.net",
+      status: mongoDb ? "online" : "offline_client_mode",
+    });
+  });
+
   // 1. Live AI Emergency Triage Classification Endpoint
   app.post("/api/ai/triage", async (req: Request, res: Response) => {
     try {

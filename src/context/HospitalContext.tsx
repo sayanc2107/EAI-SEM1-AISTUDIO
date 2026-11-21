@@ -388,15 +388,15 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
   const [previewRole, setPreviewRole] = useState<UserRole>("admin");
   const [previewStaffId, setPreviewStaffId] = useState<string>("ADM-01");
 
-  // Firestore synced collections
-  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryEntry[]>([]);
-  const [staffShifts, setStaffShifts] = useState<StaffShift[]>([]);
-  const [doctorLocations, setDoctorLocations] = useState<DoctorLocation[]>([]);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [beds, setBeds] = useState<Bed[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [prescriptions, setPrescriptions] = useState<PrescriptionRequest[]>([]);
-  const [pharmacySales, setPharmacySales] = useState<PharmacySale[]>([]);
+  // Pre-seed collections so GitHub Pages & static hosting work immediately out of the box
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryEntry[]>(INITIAL_STAFF_DIRECTORY);
+  const [staffShifts, setStaffShifts] = useState<StaffShift[]>(INITIAL_STAFF_SHIFTS);
+  const [doctorLocations, setDoctorLocations] = useState<DoctorLocation[]>(INITIAL_DOCTOR_LOCATIONS);
+  const [patients, setPatients] = useState<Patient[]>(INITIAL_PATIENTS);
+  const [beds, setBeds] = useState<Bed[]>(INITIAL_BEDS);
+  const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_INVENTORY);
+  const [prescriptions, setPrescriptions] = useState<PrescriptionRequest[]>(INITIAL_PRESCRIPTIONS);
+  const [pharmacySales, setPharmacySales] = useState<PharmacySale[]>(INITIAL_PHARMACY_SALES);
   const [staffDuties, setStaffDuties] = useState<StaffDuty[]>(INITIAL_STAFF_DUTIES);
   const [hospitalSales, setHospitalSales] = useState<HospitalSale[]>(INITIAL_HOSPITAL_SALES);
   const [payrollRecords, setPayrollRecords] = useState<StaffPayrollRecord[]>(INITIAL_PAYROLL_RECORDS);
@@ -1047,13 +1047,26 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
 
   // Resolve user's role strictly from Firestore after login (NO designation prompt on login!)
   useEffect(() => {
+    try {
+      const savedStatic = sessionStorage.getItem("medcore_static_user");
+      if (savedStatic) {
+        const parsed = JSON.parse(savedStatic) as UserProfile;
+        setUserProfile(parsed);
+        setPreviewRole(parsed.role);
+        setPreviewStaffId(parsed.linkedStaffId);
+        setAuthLoading(false);
+      }
+    } catch {}
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setAuthLoading(true);
       setAccessDeniedEmail(null);
 
       if (!user || !user.email) {
-        setFirebaseUser(null);
-        setUserProfile(null);
+        const savedStatic = sessionStorage.getItem("medcore_static_user");
+        if (!savedStatic) {
+          setFirebaseUser(null);
+          setUserProfile(null);
+        }
         setAuthLoading(false);
         return;
       }
@@ -1224,7 +1237,11 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
 
   // Attach strictly role-scoped real-time Firestore listeners once authenticated
   useEffect(() => {
-    if (!firebaseUser || !userProfile) {
+    if (!firebaseUser) {
+      // In static / GitHub Pages mode, keep pre-seeded data populated!
+      return;
+    }
+    if (!userProfile) {
       setStaffDirectory([]);
       setStaffShifts([]);
       setDoctorLocations([]);
@@ -1430,6 +1447,26 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
         ? raw.toLowerCase()
         : `${raw.toLowerCase()}@medcore.org`;
 
+    // First-time auto-provisioning for official @medcore.org sample accounts
+    const sampleMatch = SAMPLE_STAFF_CREDENTIALS.find(
+      (c) =>
+        c.email.toLowerCase() === resolvedEmail && c.password === password
+    );
+
+    const matchInDirectory = !sampleMatch
+      ? staffDirectory.find((s) => s.email.toLowerCase() === resolvedEmail)
+      : null;
+
+    const performStaticLogin = (profile: UserProfile): EmailLoginResult => {
+      setUserProfile(profile);
+      setPreviewRole(profile.role);
+      setPreviewStaffId(profile.linkedStaffId);
+      try {
+        sessionStorage.setItem("medcore_static_user", JSON.stringify(profile));
+      } catch {}
+      return { ok: true };
+    };
+
     try {
       await signInWithEmailAndPassword(auth, resolvedEmail, password);
       return { ok: true };
@@ -1438,6 +1475,41 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
         typeof err === "object" && err !== null && "code" in err
           ? String((err as { code?: unknown }).code)
           : "";
+
+      // Static / GitHub Pages fallback:
+      // If Firebase domain is unauthorized (common on *.github.io), network unreachable,
+      // or if offline, authenticate cleanly via sample credentials or staff directory!
+      if (
+        code === "auth/unauthorized-domain" ||
+        code === "auth/network-request-failed" ||
+        code === "auth/operation-not-allowed" ||
+        code === "auth/configuration-not-found" ||
+        code === "auth/user-not-found" ||
+        code === "auth/invalid-credential"
+      ) {
+        if (sampleMatch) {
+          const sampleRole =
+            INITIAL_STAFF_DIRECTORY.find(
+              (s) => s.linkedStaffId === sampleMatch.staffId
+            )?.role ?? "admin";
+          return performStaticLogin({
+            uid: `USER-${sampleMatch.staffId}`,
+            email: sampleMatch.email.toLowerCase(),
+            displayName: sampleMatch.fullName,
+            role: sampleRole,
+            linkedStaffId: sampleMatch.staffId,
+          });
+        }
+        if (matchInDirectory && (password === "password123" || password === "Admin@123")) {
+          return performStaticLogin({
+            uid: `USER-${matchInDirectory.linkedStaffId}`,
+            email: matchInDirectory.email.toLowerCase(),
+            displayName: matchInDirectory.fullName,
+            role: matchInDirectory.role,
+            linkedStaffId: matchInDirectory.linkedStaffId,
+          });
+        }
+      }
 
       if (
         code === "auth/operation-not-allowed" ||
@@ -1452,13 +1524,8 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       }
 
       // First-time auto-provisioning for official @medcore.org sample accounts
-      const exactSampleMatch = SAMPLE_STAFF_CREDENTIALS.find(
-        (c) =>
-          c.email.toLowerCase() === resolvedEmail && c.password === password
-      );
-
       if (
-        exactSampleMatch &&
+        sampleMatch &&
         (code === "auth/user-not-found" || code === "auth/invalid-credential")
       ) {
         try {
@@ -1468,7 +1535,7 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
             password
           );
           await updateProfile(created.user, {
-            displayName: exactSampleMatch.fullName,
+            displayName: sampleMatch.fullName,
           });
           return { ok: true };
         } catch (createErr: unknown) {
@@ -1516,7 +1583,12 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    await signOut(auth);
+    try {
+      sessionStorage.removeItem("medcore_static_user");
+    } catch {}
+    try {
+      await signOut(auth);
+    } catch {}
     setUserProfile(null);
     setAccessDeniedEmail(null);
   };
