@@ -1,0 +1,234 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated staff user account linking Firebase Auth UID to their database-assigned hospital role and staff ID.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 180 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "doctor", "pharmacist", "ward_staff", "nurse"] },
+        "linkedStaffId": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "role", "linkedStaffId", "createdAt", "updatedAt"]
+    },
+    "StaffDirectoryEntry": {
+      "title": "StaffDirectoryEntry",
+      "description": "Admin-managed directory mapping a staff member email address to their hospital role and linked staff shift ID.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 180 },
+        "fullName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "doctor", "pharmacist", "ward_staff", "nurse"] },
+        "linkedStaffId": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "department": { "type": "string", "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "fullName", "role", "linkedStaffId", "department", "createdAt", "updatedAt"]
+    },
+    "StaffShift": {
+      "title": "StaffShift",
+      "description": "Individual staff shift schedule containing full shift timings, assigned ward/unit, and doctor allotments for nurses.",
+      "type": "object",
+      "properties": {
+        "staffId": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerEmail": { "type": "string", "format": "email", "maxLength": 180 },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["admin", "doctor", "pharmacist", "ward_staff", "nurse"] },
+        "specialty": { "type": "string", "maxLength": 80 },
+        "location": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "enum": ["On Duty", "In Surgery", "On Call", "Off Duty"] },
+        "shiftName": { "type": "string", "enum": ["Morning", "Evening", "Night"] },
+        "shiftStart": { "type": "string", "maxLength": 16 },
+        "shiftEnd": { "type": "string", "maxLength": 16 },
+        "breakWindow": { "type": "string", "maxLength": 40 },
+        "assignedWard": { "type": "string", "maxLength": 40 },
+        "assignedDoctorIds": { "type": "array", "description": "Bounded list (max 10) of supervising doctor IDs for nurses." },
+        "activePatientsCount": { "type": "integer" },
+        "maxCapacity": { "type": "integer" },
+        "avatarUrl": { "type": "string", "maxLength": 300 },
+        "initials": { "type": "string", "maxLength": 6 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["staffId", "ownerEmail", "name", "role", "specialty", "location", "status", "shiftName", "shiftStart", "shiftEnd", "assignedWard", "activePatientsCount", "maxCapacity", "initials", "updatedAt"]
+    },
+    "DoctorLocation": {
+      "title": "DoctorLocation",
+      "description": "Operational non-PII doctor presence record showing current hospital location, duty status, and shift end time.",
+      "type": "object",
+      "properties": {
+        "doctorId": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "specialty": { "type": "string", "maxLength": 80 },
+        "location": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "enum": ["On Duty", "In Surgery", "On Call", "Off Duty"] },
+        "shiftEnd": { "type": "string", "maxLength": 16 },
+        "activePatientsCount": { "type": "integer" },
+        "maxCapacity": { "type": "integer" },
+        "avatarUrl": { "type": "string", "maxLength": 300 },
+        "initials": { "type": "string", "maxLength": 6 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["doctorId", "name", "specialty", "location", "status", "shiftEnd", "activePatientsCount", "maxCapacity", "initials", "updatedAt"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "Admitted or discharged hospital patient with clinical vitals, triage severity, and doctor/nurse allotment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 100 },
+        "age": { "type": "integer" },
+        "gender": { "type": "string", "enum": ["Female", "Male", "Other"] },
+        "symptoms": { "type": "string", "maxLength": 600 },
+        "vitals": { "type": "object" },
+        "severity": { "type": "string", "enum": ["Critical", "Urgent", "Moderate", "Routine"] },
+        "department": { "type": "string", "maxLength": 80 },
+        "assignedBedId": { "type": "string", "maxLength": 40 },
+        "assignedDoctorId": { "type": "string", "maxLength": 40 },
+        "assignedNurseId": { "type": "string", "maxLength": 40 },
+        "status": { "type": "string", "enum": ["Admitted", "Discharged"] },
+        "aiSummary": { "type": "string", "maxLength": 800 },
+        "recommendedActions": { "type": "array", "description": "Bounded list (max 10) of clinical actions." },
+        "admittedAt": { "type": "string", "maxLength": 20 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "age", "gender", "symptoms", "vitals", "severity", "department", "assignedBedId", "assignedDoctorId", "assignedNurseId", "status", "aiSummary", "recommendedActions", "admittedAt", "createdByUid", "updatedAt"]
+    },
+    "Bed": {
+      "title": "Bed",
+      "description": "Hospital ward bed tracking occupancy and sanitization state.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ward": { "type": "string", "enum": ["ICU", "Emergency", "Cardiology", "General"] },
+        "status": { "type": "string", "enum": ["Available", "Occupied", "Cleaning"] },
+        "patientId": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ward", "status", "updatedAt"]
+    },
+    "InventoryItem": {
+      "title": "InventoryItem",
+      "description": "Pharmacy medication or clinical supply item with unit price, stock count, and daily usage rate.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "maxLength": 120 },
+        "category": { "type": "string", "enum": ["Medication", "Critical Care", "Diagnostics", "PPE"] },
+        "stock": { "type": "integer" },
+        "unit": { "type": "string", "maxLength": 30 },
+        "unitPrice": { "type": "number" },
+        "minThreshold": { "type": "integer" },
+        "expiryDate": { "type": "string", "maxLength": 20 },
+        "supplier": { "type": "string", "maxLength": 100 },
+        "dailyUsage": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "category", "stock", "unit", "unitPrice", "minThreshold", "expiryDate", "supplier", "dailyUsage", "updatedAt"]
+    },
+    "PrescriptionRequest": {
+      "title": "PrescriptionRequest",
+      "description": "Doctor-issued medicine request sent directly to Pharmacy to pack medicines ahead of patient pickup.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "patientId": { "type": "string", "maxLength": 40 },
+        "patientName": { "type": "string", "maxLength": 100 },
+        "doctorId": { "type": "string", "maxLength": 40 },
+        "doctorName": { "type": "string", "maxLength": 100 },
+        "doctorUid": { "type": "string", "maxLength": 128 },
+        "items": { "type": "array", "description": "Bounded list (max 10) of prescribed medicine line items." },
+        "notes": { "type": "string", "maxLength": 400 },
+        "priority": { "type": "string", "enum": ["Stat", "Urgent", "Standard"] },
+        "status": { "type": "string", "enum": ["Pending", "Preparing", "Ready", "Dispensed"] },
+        "estimatedTotal": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "patientId", "patientName", "doctorId", "doctorName", "doctorUid", "items", "notes", "priority", "status", "estimatedTotal", "createdAt", "updatedAt"]
+    },
+    "PharmacySale": {
+      "title": "PharmacySale",
+      "description": "Completed pharmacy billing receipt exported in total sales Excel reports and used for AI demand analysis.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "billNumber": { "type": "string", "maxLength": 40 },
+        "prescriptionId": { "type": "string", "maxLength": 40 },
+        "patientName": { "type": "string", "maxLength": 100 },
+        "doctorName": { "type": "string", "maxLength": 100 },
+        "pharmacistUid": { "type": "string", "maxLength": 128 },
+        "pharmacistName": { "type": "string", "maxLength": 100 },
+        "items": { "type": "array", "description": "Bounded list (max 10) of billed medicine line items." },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["UPI", "Card", "Cash", "Insurance"] },
+        "soldAtLabel": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "billNumber", "patientName", "doctorName", "pharmacistUid", "pharmacistName", "items", "totalAmount", "paymentMethod", "soldAtLabel", "createdAt"]
+    },
+    "ActivityEntry": {
+      "title": "ActivityEntry",
+      "description": "Operational hospital audit trail log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "timestamp": { "type": "string", "maxLength": 20 },
+        "actor": { "type": "string", "enum": ["AI Triage", "AI Optimizer", "AI Forecast", "Doctor", "Pharmacist", "Ward Staff", "Nurse", "Staff"] },
+        "message": { "type": "string", "maxLength": 300 },
+        "category": { "type": "string", "enum": ["triage", "wards", "pharmacy", "nursing", "system"] },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "timestamp", "actor", "message", "category", "createdByUid", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user account profiles mapping Firebase Auth UID to verified hospital role and linkedStaffId."
+    },
+    "/staffDirectory/{emailKey}": {
+      "schema": { "$ref": "#/entities/StaffDirectoryEntry" },
+      "description": "Admin-managed role lookup table keyed by normalized staff email address."
+    },
+    "/staffShifts/{staffId}": {
+      "schema": { "$ref": "#/entities/StaffShift" },
+      "description": "Full shift schedule documents per staff member."
+    },
+    "/doctorLocations/{doctorId}": {
+      "schema": { "$ref": "#/entities/DoctorLocation" },
+      "description": "Operational non-PII doctor location and duty status directory."
+    },
+    "/patients/{patientId}": {
+      "schema": { "$ref": "#/entities/Patient" },
+      "description": "Hospital patient records with vitals, severity, and doctor/nurse assignments."
+    },
+    "/beds/{bedId}": {
+      "schema": { "$ref": "#/entities/Bed" },
+      "description": "Hospital ward bed inventory and live sanitization/occupancy status."
+    },
+    "/inventory/{itemId}": {
+      "schema": { "$ref": "#/entities/InventoryItem" },
+      "description": "Pharmacy stock items managed by pharmacists and admins."
+    },
+    "/prescriptions/{prescriptionId}": {
+      "schema": { "$ref": "#/entities/PrescriptionRequest" },
+      "description": "Prescriptions sent from doctors to pharmacy for pre-packing and fast billing."
+    },
+    "/pharmacySales/{saleId}": {
+      "schema": { "$ref": "#/entities/PharmacySale" },
+      "description": "Completed pharmacy bills for revenue tracking, Excel export, and AI sales analysis."
+    },
+    "/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityEntry" },
+      "description": "Hospital operational activity audit feed."
+    }
+  }
+}

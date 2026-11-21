@@ -1,0 +1,8 @@
+{
+  "name": "MedCore AI",
+  "description": "Smart Hospital & Emergency Operations Management System powered by live Gemini AI, featuring emergency triage, ward and doctor roster optimization, pharmacy demand forecasting, and an operations copilot.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

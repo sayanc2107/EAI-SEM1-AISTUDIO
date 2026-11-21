@@ -1,0 +1,658 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // Global Safety Net (Default Deny Catch-All)
+    // ------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Hardened Global Primitives
+    // ------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMedCorePasswordAccount() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.auth.token.email.matches('^[a-zA-Z0-9._-]+@medcore\\.org$');
+    }
+
+    function isPredefinedSampleStaff(email, role, staffId) {
+      return isMedCorePasswordAccount()
+        && request.auth.token.email == email
+        && (
+          (email == 'admin@medcore.org' && role == 'admin' && staffId == 'ADM-01')
+          || (email == 'doctor@medcore.org' && role == 'doctor' && staffId == 'DOC-02')
+          || (email == 'meera.nair@medcore.org' && role == 'doctor' && staffId == 'DOC-01')
+          || (email == 'elena.varga@medcore.org' && role == 'doctor' && staffId == 'DOC-03')
+          || (email == 'kenji.tanaka@medcore.org' && role == 'doctor' && staffId == 'DOC-04')
+          || (email == 'priya.deshmukh@medcore.org' && role == 'doctor' && staffId == 'DOC-05')
+          || (email == 'samuel.okafor@medcore.org' && role == 'doctor' && staffId == 'DOC-06')
+          || (email == 'pharmacist@medcore.org' && role == 'pharmacist' && staffId == 'PHM-01')
+          || (email == 'siddharth.bose@medcore.org' && role == 'pharmacist' && staffId == 'PHM-02')
+          || (email == 'ward@medcore.org' && role == 'ward_staff' && staffId == 'WRD-01')
+          || (email == 'deepak.sharma@medcore.org' && role == 'ward_staff' && staffId == 'WRD-02')
+          || (email == 'nurse@medcore.org' && role == 'nurse' && staffId == 'NUR-01')
+          || (email == 'rhea.thomas@medcore.org' && role == 'nurse' && staffId == 'NUR-02')
+          || (email == 'anita.joshi@medcore.org' && role == 'nurse' && staffId == 'NUR-03')
+        );
+    }
+
+    function isVerified() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && (
+          request.auth.token.email_verified == true
+          || isMedCorePasswordAccount()
+        );
+    }
+
+    function isValidId(id) {
+      return id is string
+        && id.size() >= 1
+        && id.size() <= 128
+        && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBootstrappedAdmin() {
+      return (
+          isSignedIn()
+          && request.auth.token.email == 'sayan2008c@gmail.com'
+          && request.auth.token.email_verified == true
+        )
+        || (
+          isMedCorePasswordAccount()
+          && request.auth.token.email == 'admin@medcore.org'
+        );
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isVerified()
+            && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    function hasRole(roleName) {
+      return isVerified()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == roleName;
+    }
+
+    function isValidRole(r) {
+      return r in ['admin', 'doctor', 'pharmacist', 'ward_staff', 'nurse'];
+    }
+
+    function isValidDoctorStatus(s) {
+      return s in ['On Duty', 'In Surgery', 'On Call', 'Off Duty'];
+    }
+
+    // ------------------------------------------------------------------
+    // Entity Validation Blueprints
+    // ------------------------------------------------------------------
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'linkedStaffId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'linkedStaffId', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && isValidRole(data.role)
+        && isValidId(data.linkedStaffId) && data.linkedStaffId.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStaffDirectoryEntry(data) {
+      return data.keys().hasAll(['email', 'fullName', 'role', 'linkedStaffId', 'department', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['email', 'fullName', 'role', 'linkedStaffId', 'department', 'createdAt', 'updatedAt'])
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 180
+        && data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 100
+        && isValidRole(data.role)
+        && isValidId(data.linkedStaffId) && data.linkedStaffId.size() <= 40
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 80
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidStaffShift(data) {
+      return data.keys().hasAll([
+          'staffId', 'ownerEmail', 'name', 'role', 'specialty', 'location',
+          'status', 'shiftName', 'shiftStart', 'shiftEnd', 'assignedWard',
+          'activePatientsCount', 'maxCapacity', 'initials', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'staffId', 'ownerEmail', 'name', 'role', 'specialty', 'location',
+          'status', 'shiftName', 'shiftStart', 'shiftEnd', 'breakWindow',
+          'assignedWard', 'assignedDoctorIds', 'activePatientsCount',
+          'maxCapacity', 'avatarUrl', 'initials', 'updatedAt'
+        ])
+        && isValidId(data.staffId) && data.staffId.size() <= 40
+        && data.ownerEmail is string && data.ownerEmail.size() >= 3 && data.ownerEmail.size() <= 180
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && isValidRole(data.role)
+        && data.specialty is string && data.specialty.size() >= 1 && data.specialty.size() <= 80
+        && data.location is string && data.location.size() >= 1 && data.location.size() <= 60
+        && isValidDoctorStatus(data.status)
+        && data.shiftName in ['Morning', 'Evening', 'Night']
+        && data.shiftStart is string && data.shiftStart.size() >= 3 && data.shiftStart.size() <= 16
+        && data.shiftEnd is string && data.shiftEnd.size() >= 3 && data.shiftEnd.size() <= 16
+        && (!('breakWindow' in data) || (data.breakWindow is string && data.breakWindow.size() <= 40))
+        && data.assignedWard is string && data.assignedWard.size() >= 1 && data.assignedWard.size() <= 40
+        && (!('assignedDoctorIds' in data) || (
+          data.assignedDoctorIds is list
+          && data.assignedDoctorIds.size() <= 10
+          && (data.assignedDoctorIds.size() == 0 || data.assignedDoctorIds[0] is string)
+        ))
+        && data.activePatientsCount is int && data.activePatientsCount >= 0 && data.activePatientsCount <= 50
+        && data.maxCapacity is int && data.maxCapacity >= 1 && data.maxCapacity <= 50
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 300))
+        && data.initials is string && data.initials.size() >= 1 && data.initials.size() <= 6
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDoctorLocation(data) {
+      return data.keys().hasAll([
+          'doctorId', 'name', 'specialty', 'location', 'status',
+          'shiftEnd', 'activePatientsCount', 'maxCapacity', 'initials', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'doctorId', 'name', 'specialty', 'location', 'status',
+          'shiftEnd', 'activePatientsCount', 'maxCapacity', 'avatarUrl', 'initials', 'updatedAt'
+        ])
+        && isValidId(data.doctorId) && data.doctorId.size() <= 40
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.specialty is string && data.specialty.size() >= 1 && data.specialty.size() <= 80
+        && data.location is string && data.location.size() >= 1 && data.location.size() <= 60
+        && isValidDoctorStatus(data.status)
+        && data.shiftEnd is string && data.shiftEnd.size() >= 3 && data.shiftEnd.size() <= 16
+        && data.activePatientsCount is int && data.activePatientsCount >= 0 && data.activePatientsCount <= 50
+        && data.maxCapacity is int && data.maxCapacity >= 1 && data.maxCapacity <= 50
+        && (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() <= 300))
+        && data.initials is string && data.initials.size() >= 1 && data.initials.size() <= 6
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPatient(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'age', 'gender', 'symptoms', 'vitals', 'severity',
+          'department', 'assignedBedId', 'assignedDoctorId', 'assignedNurseId',
+          'status', 'aiSummary', 'recommendedActions', 'admittedAt', 'createdByUid', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'age', 'gender', 'symptoms', 'vitals', 'severity',
+          'department', 'assignedBedId', 'assignedDoctorId', 'assignedNurseId',
+          'status', 'aiSummary', 'recommendedActions', 'admittedAt', 'createdByUid', 'updatedAt'
+        ])
+        && isValidId(data.id) && data.id.size() <= 40
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.age is int && data.age >= 0 && data.age <= 125
+        && data.gender in ['Female', 'Male', 'Other']
+        && data.symptoms is string && data.symptoms.size() >= 1 && data.symptoms.size() <= 600
+        && data.vitals is map
+        && data.vitals.keys().hasAll(['heartRate', 'bloodPressure', 'spo2', 'temperature'])
+        && data.vitals.keys().hasOnly(['heartRate', 'bloodPressure', 'spo2', 'temperature'])
+        && data.vitals.heartRate is number && data.vitals.heartRate >= 20 && data.vitals.heartRate <= 260
+        && data.vitals.bloodPressure is string && data.vitals.bloodPressure.size() >= 3 && data.vitals.bloodPressure.size() <= 20
+        && data.vitals.spo2 is number && data.vitals.spo2 >= 40 && data.vitals.spo2 <= 100
+        && data.vitals.temperature is number && data.vitals.temperature >= 90 && data.vitals.temperature <= 112
+        && data.severity in ['Critical', 'Urgent', 'Moderate', 'Routine']
+        && data.department is string && data.department.size() >= 1 && data.department.size() <= 80
+        && data.assignedBedId is string && data.assignedBedId.size() >= 1 && data.assignedBedId.size() <= 40
+        && data.assignedDoctorId is string && data.assignedDoctorId.size() <= 40
+        && data.assignedNurseId is string && data.assignedNurseId.size() <= 40
+        && data.status in ['Admitted', 'Discharged']
+        && data.aiSummary is string && data.aiSummary.size() <= 800
+        && data.recommendedActions is list && data.recommendedActions.size() <= 10
+        && (data.recommendedActions.size() == 0 || data.recommendedActions[0] is string)
+        && data.admittedAt is string && data.admittedAt.size() >= 1 && data.admittedAt.size() <= 20
+        && isValidId(data.createdByUid)
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBed(data) {
+      return data.keys().hasAll(['id', 'ward', 'status', 'patientId', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'ward', 'status', 'patientId', 'updatedAt'])
+        && isValidId(data.id) && data.id.size() <= 40
+        && data.ward in ['ICU', 'Emergency', 'Cardiology', 'General']
+        && data.status in ['Available', 'Occupied', 'Cleaning']
+        && (data.patientId == null || (data.patientId is string && data.patientId.size() <= 40))
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInventoryItem(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'category', 'stock', 'unit', 'unitPrice',
+          'minThreshold', 'expiryDate', 'supplier', 'dailyUsage', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'category', 'stock', 'unit', 'unitPrice',
+          'minThreshold', 'expiryDate', 'supplier', 'dailyUsage', 'updatedAt'
+        ])
+        && isValidId(data.id) && data.id.size() <= 40
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.category in ['Medication', 'Critical Care', 'Diagnostics', 'PPE']
+        && data.stock is int && data.stock >= 0 && data.stock <= 1000000
+        && data.unit is string && data.unit.size() >= 1 && data.unit.size() <= 30
+        && data.unitPrice is number && data.unitPrice >= 0 && data.unitPrice <= 1000000
+        && data.minThreshold is int && data.minThreshold >= 0 && data.minThreshold <= 100000
+        && data.expiryDate is string && data.expiryDate.size() >= 4 && data.expiryDate.size() <= 20
+        && data.supplier is string && data.supplier.size() >= 1 && data.supplier.size() <= 100
+        && data.dailyUsage is int && data.dailyUsage >= 0 && data.dailyUsage <= 100000
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPrescription(data) {
+      return data.keys().hasAll([
+          'id', 'patientId', 'patientName', 'doctorId', 'doctorName', 'doctorUid',
+          'items', 'notes', 'priority', 'status', 'estimatedTotal', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'patientId', 'patientName', 'doctorId', 'doctorName', 'doctorUid',
+          'items', 'notes', 'priority', 'status', 'estimatedTotal', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id) && data.id.size() <= 40
+        && isValidId(data.patientId) && data.patientId.size() <= 40
+        && data.patientName is string && data.patientName.size() >= 1 && data.patientName.size() <= 100
+        && isValidId(data.doctorId) && data.doctorId.size() <= 40
+        && data.doctorName is string && data.doctorName.size() >= 1 && data.doctorName.size() <= 100
+        && isValidId(data.doctorUid)
+        && data.items is list && data.items.size() >= 1 && data.items.size() <= 10
+        && data.items[0] is map
+        && data.notes is string && data.notes.size() <= 400
+        && data.priority in ['Stat', 'Urgent', 'Standard']
+        && data.status in ['Pending', 'Preparing', 'Ready', 'Dispensed']
+        && data.estimatedTotal is number && data.estimatedTotal >= 0 && data.estimatedTotal <= 1000000
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPharmacySale(data) {
+      return data.keys().hasAll([
+          'id', 'billNumber', 'patientName', 'doctorName', 'pharmacistUid',
+          'pharmacistName', 'items', 'totalAmount', 'paymentMethod', 'soldAtLabel', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'billNumber', 'prescriptionId', 'patientName', 'doctorName', 'pharmacistUid',
+          'pharmacistName', 'items', 'totalAmount', 'paymentMethod', 'soldAtLabel', 'createdAt'
+        ])
+        && isValidId(data.id) && data.id.size() <= 40
+        && data.billNumber is string && data.billNumber.size() >= 3 && data.billNumber.size() <= 40
+        && (!('prescriptionId' in data) || data.prescriptionId == null || (data.prescriptionId is string && data.prescriptionId.size() <= 40))
+        && data.patientName is string && data.patientName.size() >= 1 && data.patientName.size() <= 100
+        && data.doctorName is string && data.doctorName.size() <= 100
+        && isValidId(data.pharmacistUid)
+        && data.pharmacistName is string && data.pharmacistName.size() >= 1 && data.pharmacistName.size() <= 100
+        && data.items is list && data.items.size() >= 1 && data.items.size() <= 10
+        && data.items[0] is map
+        && data.totalAmount is number && data.totalAmount >= 0 && data.totalAmount <= 10000000
+        && data.paymentMethod in ['UPI', 'Card', 'Cash', 'Insurance']
+        && data.soldAtLabel is string && data.soldAtLabel.size() >= 1 && data.soldAtLabel.size() <= 40
+        && data.createdAt is timestamp;
+    }
+
+    function isValidActivityLog(data) {
+      return data.keys().hasAll(['id', 'timestamp', 'actor', 'message', 'category', 'createdByUid', 'createdAt'])
+        && data.keys().hasOnly(['id', 'timestamp', 'actor', 'message', 'category', 'createdByUid', 'createdAt'])
+        && isValidId(data.id) && data.id.size() <= 40
+        && data.timestamp is string && data.timestamp.size() >= 1 && data.timestamp.size() <= 20
+        && data.actor in ['AI Triage', 'AI Optimizer', 'AI Forecast', 'Doctor', 'Pharmacist', 'Ward Staff', 'Nurse', 'Staff']
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 300
+        && data.category in ['triage', 'wards', 'pharmacy', 'nursing', 'system']
+        && isValidId(data.createdByUid)
+        && data.createdAt is timestamp;
+    }
+
+    // ------------------------------------------------------------------
+    // 1. /users/{uid} — Strict PII Isolation + Anti-Role-Escalation
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow get: if isVerified() && isValidId(uid) && (request.auth.uid == uid || isAdmin());
+      allow list: if isBootstrappedAdmin();
+
+      allow create: if isVerified()
+        && isValidId(uid)
+        && request.auth.uid == uid
+        && isValidUserProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().email == request.auth.token.email
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (isBootstrappedAdmin() && incoming().role == 'admin')
+          || isPredefinedSampleStaff(incoming().email, incoming().role, incoming().linkedStaffId)
+          || (
+            exists(/databases/$(database)/documents/staffDirectory/$(incoming().linkedStaffId))
+            && get(/databases/$(database)/documents/staffDirectory/$(incoming().linkedStaffId)).data.email == request.auth.token.email
+            && get(/databases/$(database)/documents/staffDirectory/$(incoming().linkedStaffId)).data.role == incoming().role
+            && get(/databases/$(database)/documents/staffDirectory/$(incoming().linkedStaffId)).data.linkedStaffId == incoming().linkedStaffId
+          )
+        );
+
+      allow update: if isVerified()
+        && isValidId(uid)
+        && isValidUserProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            request.auth.uid == uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(uid);
+    }
+
+    // ------------------------------------------------------------------
+    // 2. /staffDirectory/{entryId} — Admin-Controlled Role Assignments
+    // ------------------------------------------------------------------
+    match /staffDirectory/{entryId} {
+      allow get: if isVerified()
+        && isValidId(entryId)
+        && (isAdmin() || existing().email == request.auth.token.email);
+      allow list: if isVerified()
+        && (isBootstrappedAdmin() || resource.data.email == request.auth.token.email);
+
+      allow create: if isValidId(entryId)
+        && isValidStaffDirectoryEntry(incoming())
+        && incoming().linkedStaffId == entryId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || isPredefinedSampleStaff(incoming().email, incoming().role, entryId)
+        );
+
+      allow update: if isAdmin()
+        && isValidId(entryId)
+        && isValidStaffDirectoryEntry(incoming())
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isAdmin() && isValidId(entryId);
+    }
+
+    // ------------------------------------------------------------------
+    // 3. /staffShifts/{staffId} — Private Per-Staff Full Shift Schedule
+    // ------------------------------------------------------------------
+    match /staffShifts/{staffId} {
+      allow get: if isVerified()
+        && isValidId(staffId)
+        && (isAdmin() || existing().ownerEmail == request.auth.token.email);
+      allow list: if isVerified()
+        && (isBootstrappedAdmin() || resource.data.ownerEmail == request.auth.token.email);
+
+      allow create: if isValidId(staffId)
+        && isValidStaffShift(incoming())
+        && incoming().staffId == staffId
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || isPredefinedSampleStaff(incoming().ownerEmail, incoming().role, staffId)
+        );
+
+      allow update: if isVerified()
+        && isValidId(staffId)
+        && isValidStaffShift(incoming())
+        && incoming().staffId == existing().staffId
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().ownerEmail == request.auth.token.email
+            && incoming().diff(existing()).affectedKeys().hasOnly(['location', 'status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(staffId);
+    }
+
+    // ------------------------------------------------------------------
+    // 4. /doctorLocations/{doctorId} — Non-PII Live Presence Board
+    // ------------------------------------------------------------------
+    match /doctorLocations/{doctorId} {
+      allow get: if isVerified() && isValidId(doctorId)
+        && (isAdmin() || hasRole('doctor') || hasRole('ward_staff') || hasRole('nurse'));
+      allow list: if isVerified()
+        && (isAdmin() || hasRole('doctor') || hasRole('ward_staff') || hasRole('nurse'))
+        && resource.data.status in ['On Duty', 'In Surgery', 'On Call', 'Off Duty'];
+
+      allow create: if isAdmin()
+        && isValidId(doctorId)
+        && isValidDoctorLocation(incoming())
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(doctorId)
+        && isValidDoctorLocation(incoming())
+        && incoming().doctorId == existing().doctorId
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            hasRole('doctor')
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedStaffId == doctorId
+            && incoming().diff(existing()).affectedKeys().hasOnly(['location', 'status', 'activePatientsCount', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(doctorId);
+    }
+
+    // ------------------------------------------------------------------
+    // 5. /patients/{patientId} — Clinical Records (No Pharmacist Access)
+    // ------------------------------------------------------------------
+    match /patients/{patientId} {
+      allow get: if isVerified() && isValidId(patientId)
+        && (isAdmin() || hasRole('doctor') || hasRole('ward_staff') || hasRole('nurse'));
+      allow list: if isVerified()
+        && (isAdmin() || hasRole('doctor') || hasRole('ward_staff') || hasRole('nurse'))
+        && resource.data.status in ['Admitted', 'Discharged'];
+
+      allow create: if isVerified()
+        && isValidId(patientId)
+        && isValidPatient(incoming())
+        && incoming().id == patientId
+        && incoming().createdByUid == request.auth.uid
+        && incoming().updatedAt == request.time
+        && (isAdmin() || hasRole('doctor'));
+
+      allow update: if isVerified()
+        && isValidId(patientId)
+        && isValidPatient(incoming())
+        && incoming().id == existing().id
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().status != 'Discharged'
+            && hasRole('doctor')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['vitals', 'severity', 'department', 'assignedBedId', 'status', 'aiSummary', 'recommendedActions', 'updatedAt'])
+          )
+          || (
+            existing().status != 'Discharged'
+            && hasRole('nurse')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['vitals', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(patientId);
+    }
+
+    // ------------------------------------------------------------------
+    // 6. /beds/{bedId} — Ward Bed Matrix (No Pharmacist Access)
+    // ------------------------------------------------------------------
+    match /beds/{bedId} {
+      allow get: if isVerified() && isValidId(bedId)
+        && (isAdmin() || hasRole('doctor') || hasRole('ward_staff') || hasRole('nurse'));
+      allow list: if isVerified()
+        && (isAdmin() || hasRole('doctor') || hasRole('ward_staff') || hasRole('nurse'))
+        && resource.data.ward in ['ICU', 'Emergency', 'Cardiology', 'General'];
+
+      allow create: if isAdmin()
+        && isValidId(bedId)
+        && isValidBed(incoming())
+        && incoming().id == bedId
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidId(bedId)
+        && isValidBed(incoming())
+        && incoming().id == existing().id
+        && incoming().ward == existing().ward
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            (hasRole('ward_staff') || hasRole('doctor'))
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'patientId', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(bedId);
+    }
+
+    // ------------------------------------------------------------------
+    // 7. /inventory/{itemId} — Pharmacy Stock (No Ward Staff or Nurse)
+    // ------------------------------------------------------------------
+    match /inventory/{itemId} {
+      allow get: if isVerified() && isValidId(itemId)
+        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor'));
+      allow list: if isVerified()
+        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor'))
+        && resource.data.category in ['Medication', 'Critical Care', 'Diagnostics', 'PPE'];
+
+      allow create: if isVerified()
+        && isValidId(itemId)
+        && isValidInventoryItem(incoming())
+        && incoming().id == itemId
+        && incoming().updatedAt == request.time
+        && (isAdmin() || hasRole('pharmacist'));
+
+      allow update: if isVerified()
+        && isValidId(itemId)
+        && isValidInventoryItem(incoming())
+        && incoming().id == existing().id
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            hasRole('pharmacist')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'unitPrice', 'minThreshold', 'expiryDate', 'supplier', 'dailyUsage', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    // ------------------------------------------------------------------
+    // 8. /prescriptions/{prescriptionId} — Doctor -> Pharmacy Queue
+    // ------------------------------------------------------------------
+    match /prescriptions/{prescriptionId} {
+      allow get: if isVerified() && isValidId(prescriptionId)
+        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor') || hasRole('nurse'));
+      allow list: if isVerified()
+        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor') || hasRole('nurse'))
+        && resource.data.status in ['Pending', 'Preparing', 'Ready', 'Dispensed'];
+
+      allow create: if isVerified()
+        && isValidId(prescriptionId)
+        && isValidPrescription(incoming())
+        && incoming().id == prescriptionId
+        && incoming().doctorUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (hasRole('doctor') && incoming().status == 'Pending')
+        );
+
+      allow update: if isVerified()
+        && isValidId(prescriptionId)
+        && isValidPrescription(incoming())
+        && incoming().id == existing().id
+        && incoming().doctorUid == existing().doctorUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            existing().status != 'Dispensed'
+            && hasRole('pharmacist')
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(prescriptionId);
+    }
+
+    // ------------------------------------------------------------------
+    // 9. /pharmacySales/{saleId} — Pharmacy Billing & Excel Export Only
+    // ------------------------------------------------------------------
+    match /pharmacySales/{saleId} {
+      allow get: if isVerified() && isValidId(saleId)
+        && (isAdmin() || hasRole('pharmacist'));
+      allow list: if isVerified()
+        && (isAdmin() || hasRole('pharmacist'))
+        && resource.data.paymentMethod in ['UPI', 'Card', 'Cash', 'Insurance'];
+
+      allow create: if isVerified()
+        && isValidId(saleId)
+        && isValidPharmacySale(incoming())
+        && incoming().id == saleId
+        && incoming().pharmacistUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && (isAdmin() || hasRole('pharmacist'));
+
+      allow update: if isAdmin()
+        && isValidId(saleId)
+        && isValidPharmacySale(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt;
+
+      allow delete: if isAdmin() && isValidId(saleId);
+    }
+
+    // ------------------------------------------------------------------
+    // 10. /activityLogs/{logId} — Operational Audit Trail
+    // ------------------------------------------------------------------
+    match /activityLogs/{logId} {
+      allow get: if isVerified() && isValidId(logId) && isAdmin();
+      allow list: if isVerified() && isAdmin()
+        && resource.data.category in ['triage', 'wards', 'pharmacy', 'nursing', 'system'];
+
+      allow create: if isVerified()
+        && isValidId(logId)
+        && isValidActivityLog(incoming())
+        && incoming().id == logId
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time;
+
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(logId);
+    }
+
+    // Connection probe document
+    match /test/connection {
+      allow get: if true;
+    }
+  }
+}
