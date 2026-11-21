@@ -212,3 +212,48 @@ export function exportSalesToExcel(
   XLSX.utils.book_append_sheet(wb, wsSummary, "Medicine Sales Summary");
   XLSX.writeFile(wb, "MedCore_Pharmacy_Total_Sales.xlsx");
 }
+
+export function exportCurrentStockToExcel(inventory: InventoryItem[]): void {
+  const stockRows: Record<string, unknown>[] = inventory.map((item) => ({
+    "Item ID": item.id,
+    "Medicine / Supply Name": item.name,
+    "Category": item.category,
+    "Current Stock": item.stock,
+    "Unit": item.unit,
+    "Unit Price (INR)": item.unitPrice,
+    "Total Valuation (INR)": item.stock * item.unitPrice,
+    "Reorder Threshold": item.minThreshold,
+    "Stock Status":
+      item.stock <= item.minThreshold
+        ? "CRITICAL RESTOCK"
+        : item.stock <= item.minThreshold * 1.5
+        ? "Low Stock Warning"
+        : "Adequate",
+    "Expiry Date": item.expiryDate,
+    "Supplier": item.supplier,
+    "Daily Usage": item.dailyUsage,
+  }));
+
+  const totalValuation = inventory.reduce((acc, i) => acc + i.stock * i.unitPrice, 0);
+  const totalUnits = inventory.reduce((acc, i) => acc + i.stock, 0);
+
+  stockRows.push({
+    "Item ID": "TOTALS",
+    "Medicine / Supply Name": `Total Live Inventory (${inventory.length} SKUs)`,
+    "Category": "-",
+    "Current Stock": totalUnits,
+    "Unit": "Units",
+    "Unit Price (INR)": 0,
+    "Total Valuation (INR)": totalValuation,
+    "Reorder Threshold": 0,
+    "Stock Status": "-",
+    "Expiry Date": "-",
+    "Supplier": "-",
+    "Daily Usage": inventory.reduce((acc, i) => acc + i.dailyUsage, 0),
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(stockRows);
+  XLSX.utils.book_append_sheet(wb, ws, "Current Medicine Stock");
+  XLSX.writeFile(wb, `MedCore_Pharmacy_Live_Stock_${new Date().toISOString().split("T")[0]}.xlsx`);
+}

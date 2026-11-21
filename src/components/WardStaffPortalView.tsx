@@ -4,6 +4,7 @@ import {
   Clock,
   MapPin,
   Navigation,
+  PhoneCall,
   RefreshCw,
   Sparkles,
   Wrench,
@@ -12,6 +13,7 @@ import { useHospital } from "../context/HospitalContext";
 import { ApiRequestError, runAIWardPredict } from "../services/aiClient";
 import type { WardCallPredictAIResult, WardType } from "../types/hospital";
 import { DoctorAvatar } from "./DoctorAvatar";
+import { CallDoctorModal } from "./CallDoctorModal";
 
 const WARD_FILTERS: Array<"All" | WardType> = [
   "All",
@@ -39,6 +41,7 @@ export function WardStaffPortalView({
   } = useHospital();
 
   const [wardFilter, setWardFilter] = useState<"All" | WardType>("All");
+  const [showCallModal, setShowCallModal] = useState(false);
   const [prediction, setPrediction] = useState<WardCallPredictAIResult | null>(null);
   const [loadingPredict, setLoadingPredict] = useState(false);
   const [predictError, setPredictError] = useState<{
@@ -357,13 +360,23 @@ export function WardStaffPortalView({
       {/* 3. On-Duty Doctors (Active on 'doctors' or default) */}
       {(!activeSubTab || activeSubTab === "doctors") && (
         <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
-          <div className="pb-4 border-b border-slate-800">
-            <h2 className="text-base font-semibold text-slate-100">
-              Currently On-Duty Doctors ({onDutyDoctors.length})
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Live unit locations and shift end times for doctors currently on duty.
-            </p>
+          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+            <div>
+              <h2 className="text-base font-semibold text-slate-100">
+                Currently On-Duty Doctors ({onDutyDoctors.length})
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Live unit locations and shift end times for doctors currently on duty.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCallModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+            >
+              <PhoneCall className="w-3.5 h-3.5" />
+              Call Doctor
+            </button>
           </div>
 
           {onDutyDoctors.length === 0 ? (
@@ -483,6 +496,12 @@ export function WardStaffPortalView({
           </div>
         </section>
       )}
+
+      <CallDoctorModal
+        isOpen={showCallModal}
+        onClose={() => setShowCallModal(false)}
+        callerRole="ward_staff"
+      />
     </div>
   );
 }

@@ -53,3 +53,77 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
 }
+
+/* Isolated Payslip Printing */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .payslip-printable-card,
+  .payslip-printable-card * {
+    visibility: visible !important;
+  }
+
+  .payslip-printable-card {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 24px !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    border-radius: 8px !important;
+  }
+
+  .payslip-printable-card .text-slate-100,
+  .payslip-printable-card .text-slate-200,
+  .payslip-printable-card .text-slate-300 {
+    color: #0f172a !important;
+  }
+
+  .payslip-printable-card .text-slate-400,
+  .payslip-printable-card .text-slate-500 {
+    color: #475569 !important;
+  }
+
+  .payslip-printable-card .bg-\[\#0B1120\],
+  .payslip-printable-card .bg-\[\#111827\] {
+    background: #f8fafc !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  .payslip-printable-card .border-slate-800,
+  .payslip-printable-card .border-slate-800\/80,
+  .payslip-printable-card .border-slate-800\/90 {
+    border-color: #e2e8f0 !important;
+  }
+
+  .payslip-printable-card .bg-emerald-950\/30 {
+    background: #ecfdf5 !important;
+    border-color: #a7f3d0 !important;
+  }
+
+  .payslip-printable-card .text-emerald-300,
+  .payslip-printable-card .text-emerald-400 {
+    color: #047857 !important;
+  }
+
+  .payslip-printable-card .text-rose-400 {
+    color: #be123c !important;
+  }
+
+  .payslip-printable-card .text-sky-400 {
+    color: #0369a1 !important;
+  }
+
+  .no-print,
+  .payslip-printable-card .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+}

@@ -92,6 +92,21 @@ export async function askAICopilot(args: {
   return postJson("/api/ai/copilot", args);
 }
 
+export async function runAICopilotQuery(args: {
+  query: string;
+  systemState?: Record<string, unknown>;
+}): Promise<{
+  answer: string;
+  referencedFacts: string[];
+  suggestedFollowUps: string[];
+}> {
+  return askAICopilot({
+    question: args.query,
+    history: [],
+    hospitalState: args.systemState || {},
+  });
+}
+
 export async function runAIPharmacyInsights(args: {
   sales: PharmacySale[];
   inventory: InventoryItem[];

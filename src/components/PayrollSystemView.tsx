@@ -17,14 +17,17 @@ import {
   Zap,
 } from "lucide-react";
 import { useHospital } from "../context/HospitalContext";
-import type { StaffPayrollRecord, UserRole } from "../types/hospital";
+import { exportPayslipToPdf } from "../utils/pdfPayslipUtils";
+import type { DisbursementRail, StaffPayrollRecord, UserRole } from "../types/hospital";
 
 export function PayrollSystemView() {
   const {
     payrollRecords,
+    specialPayments,
     paySalary,
     payAllPendingSalaries,
     updatePayrollCompensation,
+    issueSpecialPayment,
     userProfile,
     activeRole,
   } = useHospital();
@@ -36,14 +39,40 @@ export function PayrollSystemView() {
   // Pay Slip Modal State
   const [activeSlipRecord, setActiveSlipRecord] = useState<StaffPayrollRecord | null>(null);
 
-  // Edit Compensation Modal State
+  // Edit Compensation & Bank Account Setup Modal State
   const [editingRecord, setEditingRecord] = useState<StaffPayrollRecord | null>(null);
   const [editBase, setEditBase] = useState("");
   const [editAllowances, setEditAllowances] = useState("");
   const [editBonus, setEditBonus] = useState("");
   const [editOvertimePay, setEditOvertimePay] = useState("");
   const [editDeductions, setEditDeductions] = useState("");
+  const [editBankName, setEditBankName] = useState("");
+  const [editBankAccountNumber, setEditBankAccountNumber] = useState("");
+  const [editIfsc, setEditIfsc] = useState("");
+  const [editDesignation, setEditDesignation] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Final Disbursement Adjustment Modal State
+  const [disbursingRecord, setDisbursingRecord] = useState<StaffPayrollRecord | null>(null);
+  const [disburseBase, setDisburseBase] = useState("");
+  const [disburseAllowances, setDisburseAllowances] = useState("");
+  const [disburseBonus, setDisburseBonus] = useState("");
+  const [disburseOvertime, setDisburseOvertime] = useState("");
+  const [disburseDeductions, setDisburseDeductions] = useState("");
+  const [disburseRail, setDisburseRail] = useState<DisbursementRail>("NEFT");
+  const [disburseNotes, setDisburseNotes] = useState("");
+  const [processingDisburse, setProcessingDisburse] = useState(false);
+
+  // Special Hospital Payment / Purchases Modal State
+  const [showSpecialModal, setShowSpecialModal] = useState(false);
+  const [specialPayeeName, setSpecialPayeeName] = useState("");
+  const [specialAccountNumber, setSpecialAccountNumber] = useState("");
+  const [specialIfsc, setSpecialIfsc] = useState("");
+  const [specialAmount, setSpecialAmount] = useState("");
+  const [specialRemarks, setSpecialRemarks] = useState("");
+  const [specialPaymentType, setSpecialPaymentType] = useState<DisbursementRail>("RTGS");
+  const [specialTargetStaffId, setSpecialTargetStaffId] = useState<string>("none");
+  const [savingSpecial, setSavingSpecial] = useState(false);
 
   const [processingBatch, setProcessingBatch] = useState(false);
 
@@ -97,6 +126,37 @@ export function PayrollSystemView() {
     }
   }
 
+  function handleOpenDisburse(rec: StaffPayrollRecord) {
+    setDisbursingRecord(rec);
+    setDisburseBase(String(rec.baseSalary));
+    setDisburseAllowances(String(rec.allowances));
+    setDisburseBonus(String(rec.bonus));
+    setDisburseOvertime(String(rec.overtimePay));
+    setDisburseDeductions(String(rec.deductions));
+    setDisburseRail(rec.disbursementRail || "NEFT");
+    setDisburseNotes(rec.notes || "");
+  }
+
+  async function handleConfirmDisburse(e: React.FormEvent) {
+    e.preventDefault();
+    if (!disbursingRecord) return;
+    setProcessingDisburse(true);
+    try {
+      await paySalary(disbursingRecord.id, {
+        baseSalary: Number(disburseBase) || 0,
+        allowances: Number(disburseAllowances) || 0,
+        bonus: Number(disburseBonus) || 0,
+        overtimePay: Number(disburseOvertime) || 0,
+        deductions: Number(disburseDeductions) || 0,
+        rail: disburseRail,
+        notes: disburseNotes.trim() || undefined,
+      });
+      setDisbursingRecord(null);
+    } finally {
+      setProcessingDisburse(false);
+    }
+  }
+
   function handleOpenEdit(rec: StaffPayrollRecord) {
     setEditingRecord(rec);
     setEditBase(String(rec.baseSalary));
@@ -104,6 +164,10 @@ export function PayrollSystemView() {
     setEditBonus(String(rec.bonus));
     setEditOvertimePay(String(rec.overtimePay));
     setEditDeductions(String(rec.deductions));
+    setEditBankName(rec.bankName || "");
+    setEditBankAccountNumber(rec.bankAccountNumber || "");
+    setEditIfsc(rec.ifscOrSwift || "");
+    setEditDesignation(rec.designation || "");
   }
 
   async function handleSaveCompensation(e: React.FormEvent) {
@@ -117,10 +181,65 @@ export function PayrollSystemView() {
         bonus: Number(editBonus) || 0,
         overtimePay: Number(editOvertimePay) || 0,
         deductions: Number(editDeductions) || 0,
+        bankName: editBankName.trim() || "HDFC Bank",
+        bankAccountNumber: editBankAccountNumber.trim() || "000000000000",
+        ifscOrSwift: editIfsc.trim().toUpperCase() || "HDFC0000000",
+        designation: editDesignation.trim() || editingRecord.designation,
       });
       setEditingRecord(null);
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  function handleOpenSpecialModal(presetStaff?: StaffPayrollRecord) {
+    if (presetStaff) {
+      setSpecialPayeeName(presetStaff.staffName);
+      setSpecialAccountNumber(presetStaff.bankAccountNumber);
+      setSpecialIfsc(presetStaff.ifscOrSwift);
+      setSpecialRemarks(`Duty Incentive / Bonus for ${presetStaff.staffName}`);
+      setSpecialTargetStaffId(presetStaff.id);
+      setSpecialPaymentType("IMPS");
+    } else {
+      setSpecialPayeeName("");
+      setSpecialAccountNumber("");
+      setSpecialIfsc("");
+      setSpecialRemarks("");
+      setSpecialTargetStaffId("none");
+      setSpecialPaymentType("RTGS");
+    }
+    setSpecialAmount("");
+    setShowSpecialModal(true);
+  }
+
+  async function handleExecuteSpecialPayment(e: React.FormEvent) {
+    e.preventDefault();
+    const amt = parseFloat(specialAmount);
+    if (!specialPayeeName.trim() || !specialAccountNumber.trim() || !specialIfsc.trim() || isNaN(amt) || amt <= 0) {
+      return;
+    }
+    setSavingSpecial(true);
+    try {
+      const targetPayroll = specialTargetStaffId !== "none" ? specialTargetStaffId : undefined;
+      await issueSpecialPayment(
+        {
+          payeeName: specialPayeeName.trim(),
+          accountNumber: specialAccountNumber.trim(),
+          ifsc: specialIfsc.trim().toUpperCase(),
+          amount: amt,
+          remarks: specialRemarks.trim() || "Hospital Special Expense / Purchase",
+          paymentType: specialPaymentType,
+        },
+        targetPayroll
+      );
+      setShowSpecialModal(false);
+      setSpecialPayeeName("");
+      setSpecialAccountNumber("");
+      setSpecialIfsc("");
+      setSpecialAmount("");
+      setSpecialRemarks("");
+    } finally {
+      setSavingSpecial(false);
     }
   }
 
@@ -142,7 +261,15 @@ export function PayrollSystemView() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleOpenSpecialModal()}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
+            >
+              <Coins className="w-4 h-4" />
+              + Issue Special Payment / Purchase
+            </button>
             {pendingCount > 0 && (
               <button
                 type="button"
@@ -339,9 +466,16 @@ export function PayrollSystemView() {
                       </td>
 
                       <td className="py-3.5 px-2">
-                        <div className="text-slate-200 font-sans">{rec.bankName}</div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">{rec.bankAccountNumber}</div>
-                        <div className="text-[10px] text-slate-500 mt-0.5">{rec.ifscOrSwift}</div>
+                        <div className="text-slate-200 font-sans flex items-center gap-1.5 flex-wrap">
+                          <span>{rec.bankName}</span>
+                          {(rec.bankAccountNumber === "000000000000" || rec.bankName.includes("Pending")) && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-800">
+                              Setup Needed
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-mono text-slate-400 mt-0.5">{rec.bankAccountNumber}</div>
+                        <div className="text-[10px] font-mono text-slate-500 mt-0.5">{rec.ifscOrSwift}</div>
                       </td>
 
                       <td className="py-3.5 px-2 text-right text-slate-300">
@@ -382,6 +516,11 @@ export function PayrollSystemView() {
                         >
                           {rec.status}
                         </span>
+                        {rec.disbursementRail && (
+                          <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-sky-950 text-sky-300 border border-sky-800">
+                            {rec.disbursementRail}
+                          </span>
+                        )}
                         {rec.transactionReference && (
                           <div className="text-[10px] font-mono text-slate-500 mt-1 truncate max-w-[120px]">
                             {rec.transactionReference}
@@ -394,7 +533,7 @@ export function PayrollSystemView() {
                           {rec.status !== "Paid" && (
                             <button
                               type="button"
-                              onClick={() => paySalary(rec.id)}
+                              onClick={() => handleOpenDisburse(rec)}
                               className="px-2.5 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
                             >
                               Pay Salary
@@ -402,11 +541,27 @@ export function PayrollSystemView() {
                           )}
                           <button
                             type="button"
+                            onClick={() => handleOpenSpecialModal(rec)}
+                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                            title="Issue Special Payment / Incentive"
+                          >
+                            <Coins className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleOpenEdit(rec)}
                             className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                            title="Edit Compensation & Deductions"
+                            title="Edit Compensation & Bank Details"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => exportPayslipToPdf(rec)}
+                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 transition-colors cursor-pointer"
+                            title="Download Official PDF Payslip"
+                          >
+                            <Download className="w-3.5 h-3.5" />
                           </button>
                           <button
                             type="button"
@@ -457,6 +612,61 @@ export function PayrollSystemView() {
             </div>
 
             <form onSubmit={handleSaveCompensation} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-slate-800">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editBankName}
+                    onChange={(e) => setEditBankName(e.target.value)}
+                    placeholder="e.g. HDFC Bank, SBI"
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Bank Account Number
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editBankAccountNumber}
+                    onChange={(e) => setEditBankAccountNumber(e.target.value)}
+                    placeholder="e.g. 5010045678912"
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    IFSC Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editIfsc}
+                    onChange={(e) => setEditIfsc(e.target.value.toUpperCase())}
+                    placeholder="e.g. HDFC0001234"
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono uppercase text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Designation / Title
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editDesignation}
+                    onChange={(e) => setEditDesignation(e.target.value)}
+                    placeholder="e.g. Senior ER Consultant"
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
@@ -565,7 +775,7 @@ export function PayrollSystemView() {
           onClick={() => setActiveSlipRecord(null)}
         >
           <div
-            className="bg-[#111827] border border-slate-800 rounded-2xl max-w-2xl w-full p-6 sm:p-8 space-y-6 my-auto"
+            className="payslip-printable-card bg-[#111827] border border-slate-800 rounded-2xl max-w-2xl w-full p-6 sm:p-8 space-y-6 my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Slip Header */}
@@ -585,7 +795,7 @@ export function PayrollSystemView() {
               <button
                 type="button"
                 onClick={() => setActiveSlipRecord(null)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
+                className="no-print p-1 rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -626,7 +836,7 @@ export function PayrollSystemView() {
                 <span className={`font-semibold mt-0.5 block ${
                   activeSlipRecord.status === "Paid" ? "text-emerald-400" : "text-amber-400"
                 }`}>
-                  {activeSlipRecord.status}
+                  {activeSlipRecord.status} {activeSlipRecord.disbursementRail ? `(${activeSlipRecord.disbursementRail})` : ""}
                 </span>
               </div>
             </div>
@@ -714,15 +924,25 @@ export function PayrollSystemView() {
             )}
 
             {/* Modal Actions */}
-            <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Print Pay Slip
-              </button>
+            <div className="no-print pt-3 border-t border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportPayslipToPdf(activeSlipRecord)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition-colors cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download PDF Payslip
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print
+                </button>
+              </div>
 
               <button
                 type="button"
@@ -735,6 +955,402 @@ export function PayrollSystemView() {
           </div>
         </div>
       )}
+
+      {/* 3. Settle & Disburse Salary Modal (Adjust breakdown & Rail selection) */}
+      {disbursingRecord && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setDisbursingRecord(null)}
+        >
+          <div
+            className="bg-[#111827] border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                  <Banknote className="w-4 h-4 text-emerald-400" />
+                  Disburse Monthly Salary: {disbursingRecord.staffName}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {disbursingRecord.staffId} · {disbursingRecord.designation} ({disbursingRecord.department})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDisbursingRecord(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDisburse} className="space-y-4">
+              <div className="p-3 rounded-lg bg-[#0B1120] border border-slate-800 text-xs space-y-1">
+                <div className="text-slate-400">
+                  Beneficiary Bank: <strong className="text-slate-200">{disbursingRecord.bankName}</strong>
+                </div>
+                <div className="text-slate-400 font-mono">
+                  Account: <strong className="text-slate-200">{disbursingRecord.bankAccountNumber}</strong> · IFSC: <strong className="text-slate-200">{disbursingRecord.ifscOrSwift}</strong>
+                </div>
+              </div>
+
+              {/* Editable Breakdown prior to disbursement */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Base Salary (INR)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={disburseBase}
+                    onChange={(e) => setDisburseBase(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Duty / Special Allowance
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    value={disburseAllowances}
+                    onChange={(e) => setDisburseAllowances(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Bonus</label>
+                  <input
+                    type="number"
+                    required
+                    value={disburseBonus}
+                    onChange={(e) => setDisburseBonus(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Overtime Pay</label>
+                  <input
+                    type="number"
+                    required
+                    value={disburseOvertime}
+                    onChange={(e) => setDisburseOvertime(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Deductions</label>
+                  <input
+                    type="number"
+                    required
+                    value={disburseDeductions}
+                    onChange={(e) => setDisburseDeductions(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Settlement Rail Selection: IMPS / NEFT / RTGS */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Select Settlement Rail
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["IMPS", "NEFT", "RTGS"] as DisbursementRail[]).map((rail) => (
+                    <button
+                      key={rail}
+                      type="button"
+                      onClick={() => setDisburseRail(rail)}
+                      className={`p-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                        disburseRail === rail
+                          ? "bg-sky-500 text-slate-950 border-sky-400"
+                          : "bg-[#0B1120] text-slate-300 border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      {rail}
+                      <span className="block text-[10px] font-normal opacity-80">
+                        {rail === "IMPS" ? "Instant (24x7)" : rail === "NEFT" ? "RBI Batch" : "Real-Time Gross"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Disbursement Remarks (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={disburseNotes}
+                  onChange={(e) => setDisburseNotes(e.target.value)}
+                  placeholder="e.g. Approved November Regular Payroll Disbursement"
+                  className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Net Payout Banner */}
+              <div className="p-3.5 rounded-lg bg-emerald-950/40 border border-emerald-800/80 flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-emerald-300 font-semibold">Net Disbursed Take-Home:</span>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Direct deposit via {disburseRail}</div>
+                </div>
+                <span className="text-xl font-mono font-extrabold text-emerald-300">
+                  ₹{Math.max(
+                    0,
+                    (Number(disburseBase) || 0) +
+                      (Number(disburseAllowances) || 0) +
+                      (Number(disburseBonus) || 0) +
+                      (Number(disburseOvertime) || 0) -
+                      (Number(disburseDeductions) || 0)
+                  ).toLocaleString()}
+                </span>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDisbursingRecord(null)}
+                  className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={processingDisburse}
+                  className="px-5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  {processingDisburse ? "Disbursing..." : `Authorize & Disburse (${disburseRail})`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Issue Special Payment / Hospital Purchases Modal */}
+      {showSpecialModal && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/80 flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setShowSpecialModal(false)}
+        >
+          <div
+            className="bg-[#111827] border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-5 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-800">
+              <div>
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-amber-400" />
+                  Special Hospital Payment / Vendor Purchase
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Record vendor purchases, oxygen cylinder refills, medical repairs, and duty bonuses.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSpecialModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteSpecialPayment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Payee / Vendor / Recipient Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Apex Medical Gases & Cylinders / Dr. Vikram Shah"
+                  value={specialPayeeName}
+                  onChange={(e) => setSpecialPayeeName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Bank Account Number
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 918273645120"
+                    value={specialAccountNumber}
+                    onChange={(e) => setSpecialAccountNumber(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    IFSC Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. SBIN0001234"
+                    value={specialIfsc}
+                    onChange={(e) => setSpecialIfsc(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono uppercase text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Amount (INR ₹)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    placeholder="e.g. 45000"
+                    value={specialAmount}
+                    onChange={(e) => setSpecialAmount(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Payment Type
+                  </label>
+                  <select
+                    value={specialPaymentType}
+                    onChange={(e) => setSpecialPaymentType(e.target.value as DisbursementRail)}
+                    className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                  >
+                    <option value="IMPS">IMPS (Immediate Payment)</option>
+                    <option value="NEFT">NEFT (National Electronic Fund Transfer)</option>
+                    <option value="RTGS">RTGS (Real Time Gross Settlement)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Remarks & Purpose (Purchases / Expenses)
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  placeholder="e.g. Bulk liquid oxygen refills for ICU manifolds / Surgical drape sets"
+                  value={specialRemarks}
+                  onChange={(e) => setSpecialRemarks(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="p-3 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-400">
+                Authorized By:{" "}
+                <strong className="text-slate-200">
+                  {userProfile?.displayName || (activeRole === "accountant" ? "Vikram Mehta (CPA)" : "Hospital Administrator")}
+                </strong>{" "}
+                · Settlement Rail: <strong className="text-amber-400">{specialPaymentType}</strong>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSpecialModal(false)}
+                  className="px-4 py-2 rounded-lg text-xs font-medium text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSpecial}
+                  className="px-5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-60 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
+                >
+                  {savingSpecial ? "Disbursing..." : `Authorize & Transfer via ${specialPaymentType}`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Special Hospital Purchases & Vendor Payouts Register */}
+      <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+          <div>
+            <h3 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+              <Coins className="w-4 h-4 text-amber-400" />
+              Special Hospital Purchases & Vendor Disbursements ({specialPayments.length})
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Purchases for liquid oxygen refills, bio-medical equipment servicing, surgical consumables & special incentives.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleOpenSpecialModal()}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer self-start sm:self-auto"
+          >
+            <Coins className="w-3.5 h-3.5" />
+            + New Special Payment / Purchase
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400">
+                <th className="py-2.5 pr-3 font-medium">Date & UTR Ref</th>
+                <th className="py-2.5 px-3 font-medium">Payee / Vendor</th>
+                <th className="py-2.5 px-3 font-medium">Account & IFSC</th>
+                <th className="py-2.5 px-3 font-medium">Remarks / Purpose</th>
+                <th className="py-2.5 px-3 font-medium">Rail</th>
+                <th className="py-2.5 px-3 font-medium">Approved By</th>
+                <th className="py-2.5 pl-3 font-medium text-right">Amount (INR)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-mono">
+              {specialPayments.map((sp) => (
+                <tr key={sp.id} className="hover:bg-slate-800/30 transition-colors">
+                  <td className="py-3 pr-3">
+                    <div className="text-slate-200">{sp.date}</div>
+                    <div className="text-[10px] text-slate-500">{sp.transactionReference || sp.id}</div>
+                  </td>
+                  <td className="py-3 px-3 font-sans">
+                    <span className="font-semibold text-slate-100">{sp.payeeName}</span>
+                  </td>
+                  <td className="py-3 px-3">
+                    <div className="text-slate-300">{sp.accountNumber}</div>
+                    <div className="text-[10px] text-slate-500">{sp.ifsc}</div>
+                  </td>
+                  <td className="py-3 px-3 font-sans max-w-xs truncate text-slate-300" title={sp.remarks}>
+                    {sp.remarks}
+                  </td>
+                  <td className="py-3 px-3 font-sans">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-950 text-sky-300 border border-sky-800">
+                      {sp.paymentType}
+                    </span>
+                  </td>
+                  <td className="py-3 px-3 font-sans text-slate-400">
+                    {sp.approvedBy}
+                  </td>
+                  <td className="py-3 pl-3 text-right font-bold text-amber-400 font-mono">
+                    ₹{sp.amount.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

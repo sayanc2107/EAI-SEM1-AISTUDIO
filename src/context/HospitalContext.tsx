@@ -32,9 +32,12 @@ import {
 } from "../firebase";
 import {
   INITIAL_ACTIVITY,
+  INITIAL_ATTENDANCE_RECORDS,
   INITIAL_BEDS,
   INITIAL_DOCTOR_LOCATIONS,
+  INITIAL_HELPDESK_TICKETS,
   INITIAL_HOSPITAL_SALES,
+  INITIAL_INTERNAL_MAILS,
   INITIAL_INVENTORY,
   INITIAL_PATIENTS,
   INITIAL_PAYROLL_RECORDS,
@@ -47,13 +50,17 @@ import {
 } from "../data/seedData";
 import type {
   ActivityEntry,
+  AttendanceRecord,
   Bed,
   BedStatus,
+  DisbursementRail,
   Doctor,
   DoctorLocation,
   DoctorStatus,
   FinancialDepartment,
+  HelpdeskTicket,
   HospitalSale,
+  InternalMail,
   InventoryItem,
   Patient,
   PatientVitals,
@@ -65,6 +72,8 @@ import type {
   PrescriptionStatus,
   SeverityLevel,
   ShiftType,
+  SpecialPayment,
+  SplitPaymentDetail,
   StaffDirectoryEntry,
   StaffDuty,
   StaffPayrollRecord,
@@ -155,6 +164,7 @@ interface CreateSalePayload {
   doctorName: string;
   items: PrescriptionLineItem[];
   paymentMethod: PaymentMethod;
+  splitPayments?: SplitPaymentDetail;
 }
 
 interface HospitalContextValue {
@@ -188,6 +198,10 @@ interface HospitalContextValue {
   staffDuties: StaffDuty[];
   hospitalSales: HospitalSale[];
   payrollRecords: StaffPayrollRecord[];
+  specialPayments: SpecialPayment[];
+  attendanceRecords: AttendanceRecord[];
+  internalMails: InternalMail[];
+  helpdeskTickets: HelpdeskTicket[];
   activity: ActivityEntry[];
   toasts: ToastNotice[];
   dismissToast: (id: string) => void;
@@ -245,12 +259,73 @@ interface HospitalContextValue {
   updateStaffDutyStatus: (dutyId: string, status: StaffDuty["status"]) => Promise<void>;
   deleteStaffDuty: (dutyId: string) => Promise<void>;
   addHospitalSale: (sale: Omit<HospitalSale, "id">) => Promise<void>;
-  paySalary: (payrollId: string, notes?: string) => Promise<void>;
+  paySalary: (
+    payrollId: string,
+    options?: {
+      baseSalary?: number;
+      allowances?: number;
+      bonus?: number;
+      overtimePay?: number;
+      deductions?: number;
+      rail?: DisbursementRail;
+      notes?: string;
+    }
+  ) => Promise<void>;
   payAllPendingSalaries: () => Promise<number>;
   updatePayrollCompensation: (
     payrollId: string,
-    updates: Partial<Pick<StaffPayrollRecord, "baseSalary" | "allowances" | "bonus" | "deductions" | "overtimePay" | "overtimeHours">>
+    updates: Partial<
+      Pick<
+        StaffPayrollRecord,
+        | "baseSalary"
+        | "allowances"
+        | "bonus"
+        | "deductions"
+        | "overtimePay"
+        | "overtimeHours"
+        | "bankName"
+        | "bankAccountNumber"
+        | "ifscOrSwift"
+        | "designation"
+      >
+    >
   ) => Promise<void>;
+  issueSpecialPayment: (
+    payment: {
+      payeeName: string;
+      accountNumber: string;
+      ifsc: string;
+      amount: number;
+      remarks: string;
+      approvedBy?: string;
+      paymentType: DisbursementRail;
+    },
+    targetPayrollId?: string
+  ) => Promise<void>;
+  clockIn: (notes?: string) => Promise<void>;
+  clockOut: (recordId: string, notes?: string) => Promise<void>;
+  sendInternalMail: (payload: {
+    toEmail: string;
+    toName: string;
+    toRole: UserRole;
+    subject: string;
+    body: string;
+    priority: InternalMail["priority"];
+  }) => Promise<void>;
+  markMailRead: (mailId: string) => Promise<void>;
+  raiseHelpdeskTicket: (payload: {
+    category: HelpdeskTicket["category"];
+    priority: HelpdeskTicket["priority"];
+    subject: string;
+    description: string;
+    location: string;
+  }) => Promise<void>;
+  updateTicketStatus: (
+    ticketId: string,
+    status: HelpdeskTicket["status"],
+    resolutionNotes?: string
+  ) => Promise<void>;
+  deleteStaffMember: (staffId: string) => Promise<void>;
   adjustInventoryStock: (itemId: string, delta: number) => Promise<void>;
   addInventoryItem: (item: Omit<InventoryItem, "id">) => Promise<void>;
   importStockFromExcelRows: (rows: ParsedStockRow[]) => Promise<number>;
@@ -325,6 +400,53 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
   const [staffDuties, setStaffDuties] = useState<StaffDuty[]>(INITIAL_STAFF_DUTIES);
   const [hospitalSales, setHospitalSales] = useState<HospitalSale[]>(INITIAL_HOSPITAL_SALES);
   const [payrollRecords, setPayrollRecords] = useState<StaffPayrollRecord[]>(INITIAL_PAYROLL_RECORDS);
+  const [specialPayments, setSpecialPayments] = useState<SpecialPayment[]>([
+    {
+      id: "SP-101",
+      payeeName: "Apex Medical Gases & Oxygen Cylinders",
+      accountNumber: "918273645120",
+      ifsc: "SBIN0001234",
+      amount: 45000,
+      remarks: "Emergency bulk liquid oxygen refills for ICU and Emergency Ward manifolds",
+      approvedBy: "Hospital Administrator",
+      paymentType: "RTGS",
+      date: "2026-11-20 16:30",
+      transactionReference: "RTGS-MC-88129",
+      title: "Oxygen Refill Bulk Delivery",
+      reason: "Emergency ICU manifolds",
+    },
+    {
+      id: "SP-102",
+      payeeName: "BioMed Diagnostics Calibration Labs",
+      accountNumber: "827163549012",
+      ifsc: "HDFC0004567",
+      amount: 18500,
+      remarks: "Preventative quarterly inspection and sensor recalibration for ventilators",
+      approvedBy: "Vikram Mehta (CPA)",
+      paymentType: "NEFT",
+      date: "2026-11-21 11:15",
+      transactionReference: "NEFT-MC-44912",
+      title: "Ventilator Sensor Recalibration",
+      reason: "Quarterly preventative maintenance",
+    },
+    {
+      id: "SP-103",
+      payeeName: "Kalyan Surgical Disposables & PPE",
+      accountNumber: "736251498023",
+      ifsc: "ICIC0007890",
+      amount: 32000,
+      remarks: "500 sets sterile surgical gowns, masks, and glove cartons",
+      approvedBy: "Hospital Administrator",
+      paymentType: "IMPS",
+      date: "2026-11-21 14:40",
+      transactionReference: "IMPS-MC-21094",
+      title: "Sterile PPE and Surgical Drape Supply",
+      reason: "Operation Theatre replenishment",
+    },
+  ]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(INITIAL_ATTENDANCE_RECORDS);
+  const [internalMails, setInternalMails] = useState<InternalMail[]>(INITIAL_INTERNAL_MAILS);
+  const [helpdeskTickets, setHelpdeskTickets] = useState<HelpdeskTicket[]>(INITIAL_HELPDESK_TICKETS);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [toasts, setToasts] = useState<ToastNotice[]>([]);
 
@@ -1693,29 +1815,66 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
-  const paySalary = async (payrollId: string, notes?: string) => {
+  const paySalary = async (
+    payrollId: string,
+    options?: {
+      baseSalary?: number;
+      allowances?: number;
+      bonus?: number;
+      overtimePay?: number;
+      deductions?: number;
+      rail?: DisbursementRail;
+      notes?: string;
+    }
+  ) => {
     const nowStr = new Date().toLocaleString();
-    const ref = `NEFT-MC-${Math.floor(10000 + Math.random() * 90000)}`;
-    const paidBy = activeRole === "accountant" ? "Vikram Mehta (CPA)" : "Hospital Administrator";
+    const rail: DisbursementRail = options?.rail || "NEFT";
+    const ref = `${rail}-MC-${Math.floor(10000 + Math.random() * 90000)}`;
+    const paidBy =
+      userProfile?.displayName ||
+      (activeRole === "accountant" ? "Vikram Mehta (CPA)" : "Hospital Administrator");
+
+    let finalNet = 0;
+    let staffName = "Staff Member";
 
     setPayrollRecords((prev) =>
       prev.map((rec) => {
         if (rec.id !== payrollId) return rec;
+        staffName = rec.staffName;
+        const baseSalary = options?.baseSalary ?? rec.baseSalary;
+        const allowances = options?.allowances ?? rec.allowances;
+        const bonus = options?.bonus ?? rec.bonus;
+        const overtimePay = options?.overtimePay ?? rec.overtimePay;
+        const deductions = options?.deductions ?? rec.deductions;
+        finalNet = Math.max(0, baseSalary + allowances + bonus + overtimePay - deductions);
+
         return {
           ...rec,
+          baseSalary,
+          allowances,
+          bonus,
+          overtimePay,
+          deductions,
+          netSalary: finalNet,
+          disbursementRail: rail,
           status: "Paid" as const,
           paidAt: nowStr,
           paidBy,
           transactionReference: ref,
-          notes: notes || rec.notes,
+          notes: options?.notes || rec.notes,
         };
       })
     );
-    const targetRec = payrollRecords.find((r) => r.id === payrollId);
+
     pushToast(
       "Salary Disbursed",
-      `Paid net salary Rs. ${targetRec?.netSalary.toLocaleString()} to ${targetRec?.staffName}. Ref: ${ref}`,
+      `Paid net salary ₹${finalNet.toLocaleString("en-IN")} via ${rail} to ${staffName}. Ref: ${ref}`,
       "success"
+    );
+    await writeActivityLog(
+      activeRole === "accountant" ? "Accountant" : "Admin",
+      `Disbursed monthly salary of ₹${finalNet} via ${rail} to ${staffName}. Ref: ${ref}`,
+      "system"
     );
   };
 
@@ -1733,6 +1892,7 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
             status: "Paid" as const,
             paidAt: nowStr,
             paidBy,
+            disbursementRail: "NEFT" as DisbursementRail,
             transactionReference: `NEFT-BATCH-${Math.floor(10000 + Math.random() * 90000)}`,
           };
         }
@@ -1749,7 +1909,21 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
 
   const updatePayrollCompensation = async (
     payrollId: string,
-    updates: Partial<Pick<StaffPayrollRecord, "baseSalary" | "allowances" | "bonus" | "deductions" | "overtimePay" | "overtimeHours">>
+    updates: Partial<
+      Pick<
+        StaffPayrollRecord,
+        | "baseSalary"
+        | "allowances"
+        | "bonus"
+        | "deductions"
+        | "overtimePay"
+        | "overtimeHours"
+        | "bankName"
+        | "bankAccountNumber"
+        | "ifscOrSwift"
+        | "designation"
+      >
+    >
   ) => {
     setPayrollRecords((prev) =>
       prev.map((rec) => {
@@ -1762,7 +1936,12 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
         return { ...merged, netSalary };
       })
     );
-    pushToast("Compensation Updated", "Staff payroll and deductions recalculated", "info");
+    pushToast("Payroll Details Saved", "Updated salary breakdown and bank payment details", "success");
+    await writeActivityLog(
+      activeRole === "accountant" ? "Accountant" : "Admin",
+      `Updated compensation breakdown and bank account details for payroll ID ${payrollId}`,
+      "system"
+    );
   };
 
   const dischargePatient = async (patientId: string) => {
@@ -2123,6 +2302,14 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
     payload: CreateSalePayload
   ): Promise<PharmacySale | null> => {
     if (!firebaseUser || payload.items.length === 0) return null;
+    if (activeRole === "admin") {
+      pushToast(
+        "Action Restricted",
+        "Hospital Administrators cannot generate pharmacy bills. Billing is reserved for Pharmacists and Accountants.",
+        "warning"
+      );
+      return null;
+    }
     const saleId = `SALE-${Date.now().toString().slice(-6)}`;
     const billNumber = `BILL-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`;
     const boundedItems = payload.items.slice(0, 10);
@@ -2145,6 +2332,7 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       items: boundedItems,
       totalAmount,
       paymentMethod: payload.paymentMethod,
+      splitPayments: payload.splitPayments,
       soldAtLabel,
     };
 
@@ -2198,17 +2386,21 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
     entry: Omit<StaffDirectoryEntry, "id">,
     initialPassword?: string
   ) => {
-    if (!isActualAdmin) return;
     const cleanId = entry.linkedStaffId.trim().replace(/[^a-zA-Z0-9_-]/g, "");
     const cleanEmail = entry.email.trim().toLowerCase();
     if (!cleanId || !cleanEmail) return;
+
+    const existingDir = staffDirectory.find((s) => s.linkedStaffId === cleanId);
+    if (!existingDir && !isActualAdmin) {
+      pushToast("Admin Action Required", "Only hospital administrators can add new employee accounts.", "warning");
+      return;
+    }
 
     try {
       const ts = serverTimestamp();
       const batch = writeBatch(db);
 
       const dirRef = doc(db, "staffDirectory", cleanId);
-      const existingDir = staffDirectory.find((s) => s.linkedStaffId === cleanId);
       if (existingDir) {
         batch.update(dirRef, {
           email: cleanEmail,
@@ -2227,6 +2419,54 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
           department: entry.department.trim().slice(0, 80),
           createdAt: ts,
           updatedAt: ts,
+        });
+
+        // Seed new payroll record so accountant immediately sees the new staff member
+        const initialBase =
+          entry.role === "doctor"
+            ? 180000
+            : entry.role === "nurse"
+            ? 65000
+            : entry.role === "pharmacist"
+            ? 60000
+            : entry.role === "accountant"
+            ? 75000
+            : 42000;
+        const initialAllowance = Math.round(initialBase * 0.2);
+        const initialDeductions = Math.round(initialBase * 0.1);
+        const newPayrollRec: StaffPayrollRecord = {
+          id: `PAY-${cleanId}-${Date.now().toString().slice(-4)}`,
+          staffId: cleanId,
+          staffName: entry.fullName.trim(),
+          role: entry.role,
+          department: entry.department.trim() || "Hospital Operations",
+          designation:
+            entry.role === "doctor"
+              ? "Attending Physician"
+              : entry.role === "nurse"
+              ? "Registered Staff Nurse"
+              : entry.role === "pharmacist"
+              ? "Hospital Pharmacist"
+              : entry.role === "accountant"
+              ? "Hospital Accountant"
+              : "Ward Attendant",
+          bankName: "HDFC Bank (Pending Setup)",
+          bankAccountNumber: "000000000000",
+          ifscOrSwift: "HDFC0000000",
+          monthYear: "November 2026",
+          baseSalary: initialBase,
+          allowances: initialAllowance,
+          bonus: 0,
+          overtimeHours: 0,
+          overtimePay: 0,
+          deductions: initialDeductions,
+          netSalary: initialBase + initialAllowance - initialDeductions,
+          status: "Pending",
+          notes: "New employee - bank details pending setup by Accountant",
+        };
+        setPayrollRecords((prev) => {
+          if (prev.some((p) => p.staffId === cleanId)) return prev;
+          return [newPayrollRec, ...prev];
         });
       }
 
@@ -2491,6 +2731,236 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
     );
   };
 
+  const clockIn = async (notes?: string) => {
+    const staffId = activeStaffId || userProfile?.linkedStaffId || "STAFF-01";
+    const staffName = myShift?.name || userProfile?.displayName || "Hospital Staff";
+    const role = activeRole;
+    const now = new Date();
+    const dateStr = now.toISOString().split("T")[0];
+    const timeStr = formatNowTime();
+    const recordId = `ATT-${Date.now()}`;
+    const newRecord: AttendanceRecord = {
+      id: recordId,
+      staffId,
+      staffName,
+      role,
+      date: dateStr,
+      clockInTime: timeStr,
+      status: "Clocked In",
+      payrollHoursCounted: 0,
+      notes: notes || "Shift shift clock-in",
+      createdAt: now.toISOString(),
+    };
+    setAttendanceRecords((prev) => [newRecord, ...prev]);
+    pushToast("Clocked In Successfully", `Logged in at ${timeStr} for ${staffName}`, "success");
+    await writeActivityLog("Staff", `Clocked IN for ${role} shift at ${timeStr} (${staffName}).`, "system");
+  };
+
+  const clockOut = async (recordId: string, notes?: string) => {
+    const timeStr = formatNowTime();
+    setAttendanceRecords((prev) =>
+      prev.map((rec) => {
+        if (rec.id === recordId) {
+          const inParts = rec.clockInTime.split(":").map(Number);
+          const outParts = timeStr.split(":").map(Number);
+          let hours = (outParts[0] + (outParts[1] || 0) / 60) - (inParts[0] + (inParts[1] || 0) / 60);
+          if (hours < 0) hours += 24;
+          const roundedHours = Math.max(0.5, Math.round(hours * 10) / 10);
+          return {
+            ...rec,
+            clockOutTime: timeStr,
+            totalHours: roundedHours,
+            payrollHoursCounted: roundedHours,
+            status: "Clocked Out" as const,
+            notes: notes ? `${rec.notes ? rec.notes + " | " : ""}${notes}` : rec.notes,
+          };
+        }
+        return rec;
+      })
+    );
+    pushToast("Clocked Out Successfully", `Logged out at ${timeStr}. Attendance hours updated.`, "success");
+  };
+
+  const sendInternalMail = async (payload: {
+    toEmail: string;
+    toName: string;
+    toRole: UserRole;
+    subject: string;
+    body: string;
+    priority: InternalMail["priority"];
+  }) => {
+    const fromEmail = userProfile?.email || "staff@medcore.org";
+    const fromName = myShift?.name || userProfile?.displayName || "Hospital Staff";
+    const newMail: InternalMail = {
+      id: `MAIL-${Date.now()}`,
+      fromEmail,
+      fromName,
+      fromRole: activeRole,
+      toEmail: payload.toEmail.toLowerCase(),
+      toName: payload.toName,
+      toRole: payload.toRole,
+      subject: payload.subject.trim(),
+      body: payload.body.trim(),
+      sentAtLabel: `Today ${formatNowTime()}`,
+      priority: payload.priority,
+      isRead: false,
+    };
+    setInternalMails((prev) => [newMail, ...prev]);
+    pushToast("Internal Memo Dispatched", `Sent to ${payload.toName} (${payload.toRole})`, "success");
+  };
+
+  const markMailRead = async (mailId: string) => {
+    setInternalMails((prev) =>
+      prev.map((m) => (m.id === mailId ? { ...m, isRead: true } : m))
+    );
+  };
+
+  const raiseHelpdeskTicket = async (payload: {
+    category: HelpdeskTicket["category"];
+    priority: HelpdeskTicket["priority"];
+    subject: string;
+    description: string;
+    location: string;
+  }) => {
+    const raisedByEmail = userProfile?.email || "staff@medcore.org";
+    const raisedByName = myShift?.name || userProfile?.displayName || "MedCore Staff";
+    const ticketId = `TCK-${Date.now().toString().slice(-5)}`;
+    const newTicket: HelpdeskTicket = {
+      id: ticketId,
+      ticketNumber: `TKT-${Math.floor(1000 + Math.random() * 9000)}`,
+      category: payload.category,
+      priority: payload.priority,
+      status: "Open",
+      subject: payload.subject.trim(),
+      description: payload.description.trim(),
+      location: payload.location.trim(),
+      raisedByEmail,
+      raisedByName,
+      raisedByRole: activeRole,
+      raisedAtLabel: `Today ${formatNowTime()}`,
+    };
+    setHelpdeskTickets((prev) => [newTicket, ...prev]);
+    pushToast("Helpdesk Ticket Logged", `Ticket #${newTicket.ticketNumber} submitted to hospital admin`, "info");
+    await writeActivityLog("Staff", `Raised helpdesk issue #${newTicket.ticketNumber}: ${payload.subject}`, "system");
+  };
+
+  const updateTicketStatus = async (
+    ticketId: string,
+    status: HelpdeskTicket["status"],
+    resolutionNotes?: string
+  ) => {
+    setHelpdeskTickets((prev) =>
+      prev.map((t) => {
+        if (t.id === ticketId) {
+          return {
+            ...t,
+            status,
+            resolutionNotes: resolutionNotes || t.resolutionNotes,
+            resolvedAtLabel:
+              status === "Resolved" || status === "Closed"
+                ? `Today ${formatNowTime()}`
+                : t.resolvedAtLabel,
+          };
+        }
+        return t;
+      })
+    );
+    pushToast("Ticket Updated", `Status changed to ${status}`, "success");
+  };
+
+  const issueSpecialPayment = async (
+    payment: {
+      payeeName: string;
+      accountNumber: string;
+      ifsc: string;
+      amount: number;
+      remarks: string;
+      approvedBy?: string;
+      paymentType: DisbursementRail;
+    },
+    targetPayrollId?: string
+  ) => {
+    const specialId = `SP-${Date.now().toString().slice(-4)}`;
+    const ref = `${payment.paymentType}-MC-${Math.floor(10000 + Math.random() * 90000)}`;
+    const approvedBy =
+      payment.approvedBy ||
+      userProfile?.displayName ||
+      (activeRole === "accountant" ? "Vikram Mehta (CPA)" : "Hospital Administrator");
+    const nowStr = `Today ${formatNowTime()}`;
+
+    const newSpecial: SpecialPayment = {
+      id: specialId,
+      payeeName: payment.payeeName.trim(),
+      accountNumber: payment.accountNumber.trim(),
+      ifsc: payment.ifsc.trim(),
+      amount: payment.amount,
+      remarks: payment.remarks.trim(),
+      approvedBy,
+      paymentType: payment.paymentType,
+      date: nowStr,
+      transactionReference: ref,
+      title: payment.remarks.trim(),
+      reason: payment.remarks.trim(),
+    };
+
+    setSpecialPayments((prev) => [newSpecial, ...prev]);
+
+    if (targetPayrollId) {
+      setPayrollRecords((prev) =>
+        prev.map((rec) => {
+          if (rec.id === targetPayrollId) {
+            const currentSpecials = rec.specialPayments || [];
+            const newSpecials = [...currentSpecials, newSpecial];
+            const newBonus = (rec.bonus || 0) + payment.amount;
+            const newNet =
+              rec.baseSalary + rec.allowances + newBonus + rec.overtimePay - rec.deductions;
+            return {
+              ...rec,
+              bonus: newBonus,
+              specialPayments: newSpecials,
+              netSalary: Math.max(0, newNet),
+            };
+          }
+          return rec;
+        })
+      );
+    }
+
+    pushToast(
+      "Special Payment Disbursed",
+      `₹${payment.amount.toLocaleString("en-IN")} via ${payment.paymentType} to ${payment.payeeName}. Ref: ${ref}`,
+      "success"
+    );
+    await writeActivityLog(
+      activeRole === "accountant" ? "Accountant" : "Admin",
+      `Disbursed special payment of ₹${payment.amount} to ${payment.payeeName} (${payment.remarks}) via ${payment.paymentType}. Ref: ${ref}`,
+      "system"
+    );
+  };
+
+  const deleteStaffMember = async (staffId: string) => {
+    if (!isActualAdmin) {
+      pushToast("Admin Action Required", "Only hospital administrators can remove staff accounts.", "warning");
+      return;
+    }
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, "staffDirectory", staffId));
+      batch.delete(doc(db, "staffShifts", staffId));
+      batch.delete(doc(db, "doctorLocations", staffId));
+      await batch.commit();
+
+      setStaffDirectory((prev) => prev.filter((s) => s.linkedStaffId !== staffId && s.id !== staffId));
+      setStaffShifts((prev) => prev.filter((s) => s.staffId !== staffId));
+      setDoctorLocations((prev) => prev.filter((d) => d.doctorId !== staffId));
+
+      pushToast("Staff Member Removed", `Removed ${staffId} from hospital directory`, "success");
+      await writeActivityLog("Admin", `Removed staff member ${staffId} from hospital directory.`, "system");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `staffDirectory/${staffId}`);
+    }
+  };
+
   const value = useMemo<HospitalContextValue>(
     () => ({
       firebaseUser,
@@ -2517,6 +2987,10 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       staffDuties,
       hospitalSales,
       payrollRecords,
+      specialPayments,
+      attendanceRecords,
+      internalMails,
+      helpdeskTickets,
       activity,
       toasts,
       dismissToast,
@@ -2539,6 +3013,14 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       paySalary,
       payAllPendingSalaries,
       updatePayrollCompensation,
+      issueSpecialPayment,
+      clockIn,
+      clockOut,
+      sendInternalMail,
+      markMailRead,
+      raiseHelpdeskTicket,
+      updateTicketStatus,
+      deleteStaffMember,
       adjustInventoryStock,
       addInventoryItem,
       importStockFromExcelRows,
@@ -2572,6 +3054,10 @@ export function HospitalProvider({ children }: { children: React.ReactNode }) {
       staffDuties,
       hospitalSales,
       payrollRecords,
+      specialPayments,
+      attendanceRecords,
+      internalMails,
+      helpdeskTickets,
       activity,
       toasts,
     ]

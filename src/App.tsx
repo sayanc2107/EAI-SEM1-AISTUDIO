@@ -8,13 +8,17 @@ import {
   Activity,
   BedDouble,
   BookOpen,
+  Bot,
+  Calendar,
   ClipboardCheck,
   ClipboardList,
   Clock,
   CreditCard,
   HeartPulse,
+  HelpCircle,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
   MessageSquareText,
   PackagePlus,
@@ -29,10 +33,15 @@ import {
   X,
 } from "lucide-react";
 import { AccountantPortalView } from "./components/AccountantPortalView";
+import { AttendanceView } from "./components/AttendanceView";
 import { CopilotView } from "./components/CopilotView";
+import { DoctorAIChatbotView } from "./components/DoctorAIChatbotView";
 import { DoctorPortalView } from "./components/DoctorPortalView";
+import { DoctorWeeklyScheduleView } from "./components/DoctorWeeklyScheduleView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { HelpdeskView } from "./components/HelpdeskView";
 import { HospitalFinancialsView } from "./components/HospitalFinancialsView";
+import { InternalMailView } from "./components/InternalMailView";
 import { LoginView } from "./components/LoginView";
 import { NursePortalView } from "./components/NursePortalView";
 import { OverviewView } from "./components/OverviewView";
@@ -40,6 +49,7 @@ import { PayrollSystemView } from "./components/PayrollSystemView";
 import { PharmacistPortalView } from "./components/PharmacistPortalView";
 import { ShiftDutyManagementView } from "./components/ShiftDutyManagementView";
 import { StaffDirectoryView } from "./components/StaffDirectoryView";
+import { StaffSelfPayrollView } from "./components/StaffSelfPayrollView";
 import { TriageView } from "./components/TriageView";
 import { WardsView } from "./components/WardsView";
 import { WardStaffPortalView } from "./components/WardStaffPortalView";
@@ -58,41 +68,67 @@ const ROLE_NAV_ITEMS: Record<UserRole, NavItem[]> = {
     { id: "triage", label: "ER Triage & Vitals", icon: Activity },
     { id: "wards", label: "Wards & Bed Matrix", icon: BedDouble },
     { id: "duty_roster", label: "Shift & Duty Roster", icon: Clock },
-    { id: "pharmacy", label: "Pharmacy Dispensing", icon: Pill },
     { id: "finance", label: "Hospital Financials", icon: Receipt },
     { id: "payroll", label: "Staff Payroll", icon: CreditCard },
     { id: "staff_admin", label: "Staff & Roles", icon: Users },
+    { id: "internal_mail", label: "Hospital Mail", icon: Mail },
+    { id: "attendance", label: "Staff Attendance Roster", icon: Clock },
+    { id: "helpdesk", label: "Helpdesk & Issues", icon: HelpCircle },
     { id: "copilot", label: "AI Copilot", icon: MessageSquareText },
   ],
   doctor: [
     { id: "doctor_shift", label: "Shift Schedule & Duties", icon: Clock },
+    { id: "doctor_schedule", label: "1-Week Schedule", icon: Calendar },
     { id: "doctor_patients", label: "Allotted Patients", icon: Users },
     { id: "doctor_prescriptions", label: "Prescriptions", icon: Pill },
+    { id: "doctor_chat", label: "Clinical AI Chatbot", icon: Bot },
     { id: "doctor_library", label: "Doctor Library", icon: BookOpen },
+    { id: "internal_mail", label: "Hospital Mail", icon: Mail },
+    { id: "attendance", label: "My Attendance", icon: Clock },
+    { id: "staff_payroll", label: "My Payslips & Payroll", icon: CreditCard },
+    { id: "helpdesk", label: "Raise Issue / Helpdesk", icon: HelpCircle },
   ],
   nurse: [
     { id: "nurse_station", label: "Nursing Station & Duties", icon: HeartPulse },
     { id: "nurse_patients", label: "Allotted Patients & Vitals", icon: Users },
     { id: "nurse_prescriptions", label: "Patient Prescriptions", icon: Pill },
     { id: "nurse_doctors", label: "Doctor Directory", icon: Stethoscope },
+    { id: "internal_mail", label: "Hospital Mail", icon: Mail },
+    { id: "attendance", label: "My Attendance", icon: Clock },
+    { id: "staff_payroll", label: "My Payslips & Payroll", icon: CreditCard },
+    { id: "helpdesk", label: "Raise Issue / Helpdesk", icon: HelpCircle },
   ],
   ward_staff: [
     { id: "ward_shift", label: "Shift Schedule & Duties", icon: Clock },
     { id: "ward_beds", label: "Bed Turnover Matrix", icon: BedDouble },
     { id: "ward_doctors", label: "On-Duty Doctors", icon: Stethoscope },
     { id: "ward_ai", label: "AI Transport Predictor", icon: Sparkles },
+    { id: "internal_mail", label: "Hospital Mail", icon: Mail },
+    { id: "attendance", label: "My Attendance", icon: Clock },
+    { id: "staff_payroll", label: "My Payslips & Payroll", icon: CreditCard },
+    { id: "helpdesk", label: "Raise Issue / Helpdesk", icon: HelpCircle },
   ],
   pharmacist: [
     { id: "pharma_overview", label: "Pharmacy Overview", icon: LayoutDashboard },
     { id: "pharma_prescriptions", label: "Prescription Queue", icon: ClipboardList },
-    { id: "pharma_inventory", label: "Stock & Excel Import", icon: PackagePlus },
     { id: "pharma_billing", label: "Billing & Sales Ledger", icon: Receipt },
+    { id: "pharma_inventory", label: "Stock & Excel Import", icon: PackagePlus },
+    { id: "pharma_add_stock", label: "Add Medicine Stock", icon: Plus },
+    { id: "internal_mail", label: "Hospital Mail", icon: Mail },
+    { id: "attendance", label: "My Attendance", icon: Clock },
+    { id: "staff_payroll", label: "My Payslips & Payroll", icon: CreditCard },
+    { id: "helpdesk", label: "Raise Issue / Helpdesk", icon: HelpCircle },
   ],
   accountant: [
     { id: "acc_overview", label: "Financial Overview", icon: LayoutDashboard },
     { id: "acc_sales", label: "Department Sales", icon: Receipt },
     { id: "acc_payroll", label: "Staff Payroll", icon: CreditCard },
     { id: "acc_staff", label: "Staff Directory & Pay", icon: Users },
+    { id: "pharma_billing", label: "Pharmacy Billing Desk", icon: Receipt },
+    { id: "internal_mail", label: "Hospital Mail", icon: Mail },
+    { id: "attendance", label: "My Attendance", icon: Clock },
+    { id: "staff_payroll", label: "My Payslips & Payroll", icon: CreditCard },
+    { id: "helpdesk", label: "Raise Issue / Helpdesk", icon: HelpCircle },
   ],
 };
 
@@ -115,11 +151,17 @@ const VIEW_BREADCRUMBS: Record<WorkspaceTab, { section: string; title: string }>
   payroll: { section: "Admin", title: "Staff Payroll & Doctor Compensation" },
   copilot: { section: "Admin", title: "AI Operations Copilot" },
   staff_admin: { section: "Admin", title: "Staff Directory & Role Access" },
+  internal_mail: { section: "Internal Communications", title: "Internal Mail System & AI Assistant" },
+  helpdesk: { section: "Support & Ticketing", title: "Hospital Helpdesk & Issues Management" },
+  attendance: { section: "Workforce", title: "Daily Staff Attendance & Shift Clock-In" },
+  staff_payroll: { section: "Self-Service", title: "Staff Salary History & Downloadable Payslips" },
 
   doctor_portal: { section: "Doctor", title: "Shift, Duties & Allotted Patients" },
   doctor_shift: { section: "Doctor", title: "Shift Schedule & Assigned Duties" },
+  doctor_schedule: { section: "Doctor", title: "1-Week Rolling Duty Schedule" },
   doctor_patients: { section: "Doctor", title: "Allotted Patients & Clinical Care" },
   doctor_prescriptions: { section: "Doctor", title: "Patient Prescriptions Desk" },
+  doctor_chat: { section: "Doctor", title: "Clinical AI Chatbot & Next Step Analysis" },
   doctor_library: { section: "Doctor", title: "Clinical Library & Protocols" },
 
   nurse_portal: { section: "Nursing", title: "Nursing Station & Allotted Patients" },
@@ -138,12 +180,13 @@ const VIEW_BREADCRUMBS: Record<WorkspaceTab, { section: string; title: string }>
   pharma_overview: { section: "Pharmacy", title: "Pharmacy Overview & Stock Insights" },
   pharma_prescriptions: { section: "Pharmacy", title: "Doctor Prescription Queue" },
   pharma_inventory: { section: "Pharmacy", title: "Stock & Excel Inventory Import" },
+  pharma_add_stock: { section: "Pharmacy", title: "Add Medicine Stock & Inventory Setup" },
   pharma_billing: { section: "Pharmacy", title: "Point of Sale Billing Desk" },
 
   acc_overview: { section: "Accountant", title: "Hospital Financial Dashboard" },
-  acc_sales: { section: "Accountant", title: "Departmental Revenue & Invoices" },
-  acc_payroll: { section: "Accountant", title: "Staff Payroll & Salary Disbursal" },
-  acc_staff: { section: "Accountant", title: "Staff Directory & Compensation" },
+  acc_sales: { section: "Accountant", title: "Departmental Revenue & Multi-Column Ledger" },
+  acc_payroll: { section: "Accountant", title: "Staff Payroll & Special Incentives" },
+  acc_staff: { section: "Accountant", title: "Staff Directory & Compensation Management" },
 };
 
 function defaultTabForRole(role: UserRole): WorkspaceTab {
@@ -523,8 +566,18 @@ function MedCoreShell() {
               {activeTab === "acc_sales" && <AccountantPortalView subTab="sales" />}
               {activeTab === "acc_payroll" && <AccountantPortalView subTab="payroll" />}
               {activeTab === "acc_staff" && <AccountantPortalView subTab="staff" />}
+              {activeTab === "pharma_billing" && <AccountantPortalView subTab="billing" />}
             </>
           )}
+
+          {/* Universal Workspaces across Roles */}
+          {activeTab === "internal_mail" && <InternalMailView />}
+          {activeTab === "attendance" && <AttendanceView />}
+          {activeTab === "helpdesk" && <HelpdeskView />}
+          {activeTab === "staff_payroll" && <StaffSelfPayrollView />}
+          {activeTab === "doctor_schedule" && <DoctorWeeklyScheduleView />}
+          {activeTab === "doctor_chat" && <DoctorAIChatbotView />}
+          {activeTab === "pharma_add_stock" && <PharmacistPortalView activeSubTab="inventory" />}
         </main>
       </div>
 

@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Bot,
+  Calendar,
   Clock,
   MapPin,
+  PhoneCall,
   Pill,
   Plus,
   Send,
@@ -20,6 +23,9 @@ import type {
   SeverityLevel,
 } from "../types/hospital";
 import { DoctorAvatar } from "./DoctorAvatar";
+import { DoctorAIChatbotView } from "./DoctorAIChatbotView";
+import { DoctorWeeklyScheduleView } from "./DoctorWeeklyScheduleView";
+import { CallDoctorModal } from "./CallDoctorModal";
 
 const LOCATION_OPTIONS = [
   "ICU",
@@ -56,7 +62,7 @@ function severityColor(severity: SeverityLevel): string {
 export function DoctorPortalView({
   activeSubTab,
 }: {
-  activeSubTab?: "shift" | "patients" | "prescriptions" | "library";
+  activeSubTab?: "shift" | "patients" | "prescriptions" | "library" | "chat" | "schedule";
 } = {}) {
   const {
     activeStaffId,
@@ -76,6 +82,16 @@ export function DoctorPortalView({
   } = useHospital();
 
   const myDoctorId = myShift?.staffId || activeStaffId || "DOC-02";
+
+  if (activeSubTab === "chat") {
+    return <DoctorAIChatbotView />;
+  }
+
+  if (activeSubTab === "schedule") {
+    return <DoctorWeeklyScheduleView targetDoctorId={myDoctorId} />;
+  }
+
+  const [showCallModal, setShowCallModal] = useState(false);
   const myDoctorRecord = useMemo(
     () => doctorLocations.find((d) => d.doctorId === myDoctorId) || null,
     [doctorLocations, myDoctorId]
@@ -374,6 +390,14 @@ export function DoctorPortalView({
                   className="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-100 transition-colors whitespace-nowrap cursor-pointer"
                 >
                   {savingPresence ? "Saving..." : "Update Presence"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCallModal(true)}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  Call Colleague
                 </button>
               </form>
             </div>
@@ -965,6 +989,12 @@ export function DoctorPortalView({
           </div>
         </div>
       )}
+
+      <CallDoctorModal
+        isOpen={showCallModal}
+        onClose={() => setShowCallModal(false)}
+        callerRole="doctor"
+      />
     </div>
   );
 }

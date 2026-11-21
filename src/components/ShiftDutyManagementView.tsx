@@ -5,6 +5,7 @@ import {
   Clock,
   Filter,
   MapPin,
+  PhoneCall,
   Plus,
   Shield,
   Stethoscope,
@@ -14,6 +15,8 @@ import {
 } from "lucide-react";
 import { useHospital } from "../context/HospitalContext";
 import { DoctorAvatar } from "./DoctorAvatar";
+import { CallDoctorModal } from "./CallDoctorModal";
+import { DoctorWeeklyScheduleView } from "./DoctorWeeklyScheduleView";
 import type {
   DoctorStatus,
   ShiftType,
@@ -56,9 +59,10 @@ export function ShiftDutyManagementView() {
   } = useHospital();
 
   // Active sub-section
-  const [sectionTab, setSectionTab] = useState<"shift_change" | "assign_duty" | "roster">(
+  const [sectionTab, setSectionTab] = useState<"shift_change" | "assign_duty" | "roster" | "doctor_schedule">(
     "shift_change"
   );
+  const [showCallDoctor, setShowCallDoctor] = useState(false);
 
   // 1. Doctor Shift Change State
   const [selectedDoctorId, setSelectedDoctorId] = useState(doctors[0]?.id || "DOC-01");
@@ -220,6 +224,17 @@ export function ShiftDutyManagementView() {
             >
               Live Duty Roster ({staffDuties.length})
             </button>
+            <button
+              type="button"
+              onClick={() => setSectionTab("doctor_schedule")}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                sectionTab === "doctor_schedule"
+                  ? "bg-sky-500 text-slate-950"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              Doctor 7-Day Schedule
+            </button>
           </div>
         </div>
 
@@ -263,7 +278,7 @@ export function ShiftDutyManagementView() {
       {/* 1. Change Doctor Shift Form */}
       {sectionTab === "shift_change" && (
         <section className="bg-[#111827] border border-slate-800 rounded-xl p-6 space-y-6">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
             <div>
               <h3 className="text-base font-semibold text-slate-100 flex items-center gap-2">
                 <Clock className="w-4 h-4 text-sky-400" />
@@ -273,6 +288,26 @@ export function ShiftDutyManagementView() {
                 Select any attending physician to reassign their shift timing, ward placement, or duty status.
               </p>
             </div>
+            {selectedDoctor && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCallDoctor(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <PhoneCall className="w-3.5 h-3.5" />
+                  Call {selectedDoctor.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSectionTab("doctor_schedule")}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  7-Day Schedule
+                </button>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleSaveDoctorShift} className="space-y-5">
@@ -819,6 +854,55 @@ export function ShiftDutyManagementView() {
           )}
         </section>
       )}
+
+      {/* 4. Doctor 7-Day Schedule Roster View (Filterable by chosen Doctor Name) */}
+      {sectionTab === "doctor_schedule" && (
+        <section className="space-y-4">
+          <div className="bg-[#111827] border border-slate-800 rounded-xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-semibold text-slate-100 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-sky-400" />
+                Physician 7-Day Roster View
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Inspect 1-week shift schedules according to the doctor chosen below.
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-slate-300 font-medium whitespace-nowrap">
+                Select Physician:
+              </label>
+              <select
+                value={selectedDoctorId}
+                onChange={(e) => handleDoctorSelect(e.target.value)}
+                className="px-3 py-1.5 rounded-lg bg-[#0B1120] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+              >
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} ({d.specialty})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => setShowCallDoctor(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <PhoneCall className="w-3.5 h-3.5" />
+                Call Doctor
+              </button>
+            </div>
+          </div>
+
+          <DoctorWeeklyScheduleView targetDoctorId={selectedDoctorId} />
+        </section>
+      )}
+
+      <CallDoctorModal
+        isOpen={showCallDoctor}
+        onClose={() => setShowCallDoctor(false)}
+        callerRole="admin"
+      />
     </div>
   );
 }

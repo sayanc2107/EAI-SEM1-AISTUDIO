@@ -43,6 +43,7 @@ const PAYMENT_METHOD_COLORS: Record<PaymentMethod, string> = {
   UPI: "#10b981",
   Card: "#818cf8",
   Cash: "#f59e0b",
+  Split: "#ec4899",
 };
 
 const DEPARTMENTS: FinancialDepartment[] = [
@@ -56,11 +57,12 @@ const DEPARTMENTS: FinancialDepartment[] = [
 ];
 
 export function HospitalFinancialsView() {
-  const { hospitalSales, addHospitalSale, userProfile } = useHospital();
+  const { hospitalSales, addHospitalSale, userProfile, payrollRecords } = useHospital();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDept, setSelectedDept] = useState<"All" | FinancialDepartment>("All");
   const [selectedMethod, setSelectedMethod] = useState<"All" | PaymentMethod>("All");
+  const [tableLayout, setTableLayout] = useState<"columns" | "standard">("columns");
   const [showAddModal, setShowAddModal] = useState(false);
 
   // New Sale Form State
@@ -102,6 +104,7 @@ export function HospitalFinancialsView() {
       UPI: 0,
       Card: 0,
       Cash: 0,
+      Split: 0,
     };
     hospitalSales.forEach((s) => {
       if (map[s.paymentMethod] !== undefined) {
@@ -386,13 +389,158 @@ export function HospitalFinancialsView() {
               <option value="UPI">UPI</option>
               <option value="Card">Card</option>
               <option value="Cash">Cash</option>
+              <option value="Split">Split Payment</option>
             </select>
+
+            {/* Layout Toggle */}
+            <div className="flex items-center gap-1 bg-[#0B1120] border border-slate-800 p-0.5 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setTableLayout("columns")}
+                className={`px-2 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                  tableLayout === "columns"
+                    ? "bg-sky-500 text-slate-950"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Department Columns
+              </button>
+              <button
+                type="button"
+                onClick={() => setTableLayout("standard")}
+                className={`px-2 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                  tableLayout === "standard"
+                    ? "bg-sky-500 text-slate-950"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Standard List
+              </button>
+            </div>
           </div>
         </div>
 
         {filteredSales.length === 0 ? (
           <div className="py-12 text-center text-xs text-slate-400">
             No transaction records match your search or filter criteria.
+          </div>
+        ) : tableLayout === "columns" ? (
+          /* Multi-Column Ledger across Hospital Departments */
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400">
+                  <th className="py-3 pr-3 font-medium">Invoice # / Date</th>
+                  <th className="py-3 px-2 font-medium">Patient / Service</th>
+                  <th className="py-3 px-2 font-medium text-right text-rose-400">ICU (₹)</th>
+                  <th className="py-3 px-2 font-medium text-right text-sky-400">Pharmacy (₹)</th>
+                  <th className="py-3 px-2 font-medium text-right text-indigo-400">OPD (₹)</th>
+                  <th className="py-3 px-2 font-medium text-right text-amber-400">Surgery/ER (₹)</th>
+                  <th className="py-3 px-2 font-medium text-right text-emerald-400">Lab/Radio (₹)</th>
+                  <th className="py-3 px-2 font-medium text-right text-purple-400">Staff Salary (₹)</th>
+                  <th className="py-3 px-2 font-medium text-right text-white font-bold">Total (₹)</th>
+                  <th className="py-3 pl-2 font-medium text-right">Method & Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {filteredSales.map((sale) => {
+                  const isIcu = sale.department === "ICU";
+                  const isPharma = sale.department === "Pharmacy";
+                  const isOpd = sale.department === "OPD";
+                  const isSurgeryOrEr = sale.department === "Surgery" || sale.department === "Emergency";
+                  const isLabRadio = sale.department === "Laboratory" || sale.department === "Radiology";
+
+                  return (
+                    <tr key={sale.id} className="hover:bg-slate-800/30 transition-colors">
+                      <td className="py-2.5 pr-3">
+                        <div className="font-semibold text-sky-400">{sale.invoiceNumber}</div>
+                        <div className="text-[10px] text-slate-500 font-sans mt-0.5">{sale.date}</div>
+                      </td>
+                      <td className="py-2.5 px-2 font-sans max-w-[180px]">
+                        <div className="font-medium text-slate-200 truncate">{sale.patientName}</div>
+                        <div className="text-[10px] text-slate-400 truncate">{sale.serviceDescription}</div>
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        {isIcu ? (
+                          <span className="font-bold text-rose-400">₹{sale.amount.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        {isPharma ? (
+                          <span className="font-bold text-sky-400">₹{sale.amount.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        {isOpd ? (
+                          <span className="font-bold text-indigo-400">₹{sale.amount.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        {isSurgeryOrEr ? (
+                          <span className="font-bold text-amber-400">₹{sale.amount.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        {isLabRadio ? (
+                          <span className="font-bold text-emerald-400">₹{sale.amount.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        <span className="text-slate-600">—</span>
+                      </td>
+                      <td className="py-2.5 px-2 text-right font-bold text-slate-100">
+                        ₹{sale.amount.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 pl-2 text-right font-sans">
+                        <div className="text-[11px] text-slate-300">{sale.paymentMethod}</div>
+                        <span className="text-[10px] text-emerald-400 font-semibold">{sale.paymentStatus}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-700 bg-slate-900/80 font-mono font-bold text-xs">
+                  <td colSpan={2} className="py-3 px-3 text-slate-300 font-sans">
+                    Hospital Ledger Totals:
+                  </td>
+                  <td className="py-3 px-2 text-right text-rose-400">
+                    ₹{filteredSales.filter((s) => s.department === "ICU").reduce((a, s) => a + s.amount, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-right text-sky-400">
+                    ₹{filteredSales.filter((s) => s.department === "Pharmacy").reduce((a, s) => a + s.amount, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-right text-indigo-400">
+                    ₹{filteredSales.filter((s) => s.department === "OPD").reduce((a, s) => a + s.amount, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-right text-amber-400">
+                    ₹{filteredSales.filter((s) => s.department === "Surgery" || s.department === "Emergency").reduce((a, s) => a + s.amount, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-right text-emerald-400">
+                    ₹{filteredSales.filter((s) => s.department === "Laboratory" || s.department === "Radiology").reduce((a, s) => a + s.amount, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-right text-purple-400">
+                    -₹{payrollRecords.filter((p) => p.status === "Paid").reduce((a, p) => a + p.netSalary, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 px-2 text-right text-emerald-300 text-sm">
+                    ₹{filteredSales.reduce((a, s) => a + s.amount, 0).toLocaleString()}
+                  </td>
+                  <td className="py-3 pl-2 text-right text-[10px] font-sans text-slate-400">
+                    Net Settled
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
         ) : (
           <div className="overflow-x-auto">

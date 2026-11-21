@@ -7,7 +7,7 @@ export type DoctorStatus = "On Duty" | "In Surgery" | "On Call" | "Off Duty";
 export type ShiftType = "Morning" | "Evening" | "Night";
 export type InventoryCategory = "Medication" | "Critical Care" | "Diagnostics" | "PPE";
 export type PrescriptionStatus = "Pending" | "Preparing" | "Ready" | "Dispensed";
-export type PaymentMethod = "UPI" | "Card" | "Cash" | "Insurance";
+export type PaymentMethod = "UPI" | "Card" | "Cash" | "Insurance" | "Split";
 
 export type WorkspaceTab =
   | "overview"
@@ -19,15 +19,22 @@ export type WorkspaceTab =
   | "duty_roster"
   | "copilot"
   | "staff_admin"
+  | "internal_mail"
+  | "helpdesk"
+  | "attendance"
+  | "staff_payroll"
   | "doctor_portal"
   | "doctor_shift"
+  | "doctor_schedule"
   | "doctor_patients"
   | "doctor_prescriptions"
   | "doctor_library"
+  | "doctor_chat"
   | "pharmacist_portal"
   | "pharma_overview"
   | "pharma_prescriptions"
   | "pharma_inventory"
+  | "pharma_add_stock"
   | "pharma_billing"
   | "ward_portal"
   | "ward_shift"
@@ -163,49 +170,7 @@ export type FinancialDepartment =
   | "Laboratory"
   | "Radiology";
 
-export interface HospitalSale {
-  id: string;
-  invoiceNumber: string;
-  department: FinancialDepartment;
-  patientId?: string;
-  patientName: string;
-  doctorName?: string;
-  serviceDescription: string;
-  amount: number;
-  paymentMethod: PaymentMethod;
-  paymentStatus: "Paid" | "Pending" | "Partially Paid";
-  date: string;
-  soldAtLabel: string;
-  recordedBy: string;
-  notes?: string;
-}
-
 export type PayrollStatus = "Paid" | "Pending" | "Processing";
-
-export interface StaffPayrollRecord {
-  id: string;
-  staffId: string;
-  staffName: string;
-  role: UserRole;
-  department: string;
-  designation: string;
-  bankName: string;
-  bankAccountNumber: string;
-  ifscOrSwift: string;
-  monthYear: string;
-  baseSalary: number;
-  allowances: number;
-  bonus: number;
-  overtimeHours: number;
-  overtimePay: number;
-  deductions: number;
-  netSalary: number;
-  status: PayrollStatus;
-  paidAt?: string;
-  paidBy?: string;
-  transactionReference?: string;
-  notes?: string;
-}
 
 export interface Bed {
   id: string;
@@ -265,6 +230,13 @@ export interface PrescriptionRequest {
   createdAtLabel?: string;
 }
 
+export interface SplitPaymentDetail {
+  method1: "UPI" | "Card" | "Cash" | "Insurance";
+  amount1: number;
+  method2: "UPI" | "Card" | "Cash" | "Insurance";
+  amount2: number;
+}
+
 export interface PharmacySale {
   id: string;
   billNumber: string;
@@ -276,7 +248,141 @@ export interface PharmacySale {
   items: PrescriptionLineItem[];
   totalAmount: number;
   paymentMethod: PaymentMethod;
+  splitPayments?: SplitPaymentDetail;
   soldAtLabel: string;
+}
+
+export interface HospitalSale {
+  id: string;
+  invoiceNumber: string;
+  department: FinancialDepartment;
+  patientId?: string;
+  patientName: string;
+  doctorName?: string;
+  serviceDescription: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  splitPayments?: SplitPaymentDetail;
+  paymentStatus: "Paid" | "Pending" | "Partially Paid";
+  date: string;
+  soldAtLabel: string;
+  recordedBy: string;
+  notes?: string;
+}
+
+export type DisbursementRail = "IMPS" | "NEFT" | "RTGS";
+
+export interface SpecialPayment {
+  id: string;
+  payeeName: string;
+  accountNumber: string;
+  ifsc: string;
+  amount: number;
+  remarks: string;
+  approvedBy: string;
+  paymentType: DisbursementRail;
+  date: string;
+  transactionReference?: string;
+  // Compatibility helpers
+  title?: string;
+  reason?: string;
+}
+
+export interface StaffPayrollRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: UserRole;
+  department: string;
+  designation: string;
+  bankName: string;
+  bankAccountNumber: string;
+  ifscOrSwift: string;
+  monthYear: string;
+  baseSalary: number;
+  allowances: number;
+  bonus: number;
+  overtimeHours: number;
+  overtimePay: number;
+  deductions: number;
+  specialPayments?: SpecialPayment[];
+  disbursementRail?: DisbursementRail;
+  netSalary: number;
+  status: PayrollStatus;
+  paidAt?: string;
+  paidBy?: string;
+  transactionReference?: string;
+  notes?: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  role: UserRole;
+  date: string;
+  clockInTime: string;
+  clockOutTime?: string;
+  totalHours?: number;
+  payrollHoursCounted?: number;
+  status: "Clocked In" | "Clocked Out";
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface InternalMail {
+  id: string;
+  fromEmail: string;
+  fromName: string;
+  fromRole: UserRole;
+  toEmail: string;
+  toName: string;
+  toRole: UserRole;
+  subject: string;
+  body: string;
+  priority: "Normal" | "Urgent" | "Clinical Memo" | "Administrative";
+  sentAt?: string;
+  sentAtLabel?: string;
+  isRead: boolean;
+  aiAssisted?: boolean;
+}
+
+export interface HelpdeskTicket {
+  id: string;
+  ticketNumber: string;
+  raisedByStaffId?: string;
+  raisedByStaffName?: string;
+  raisedByRole: UserRole;
+  raisedByEmail?: string;
+  raisedByName?: string;
+  category:
+    | "Equipment & Facilities"
+    | "Clinical IT / Software"
+    | "Pharmacy & Stock"
+    | "Nursing & Bedding"
+    | "HR & Payroll"
+    | "Administrative";
+  priority: "Low" | "Medium" | "High" | "Critical";
+  subject: string;
+  description: string;
+  location: string;
+  status: "Open" | "In Progress" | "Resolved" | "Closed";
+  resolutionNotes?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  resolvedAtLabel?: string;
+  createdAt?: string;
+  raisedAtLabel?: string;
+}
+
+export interface DoctorDaySchedule {
+  dayName: string;
+  dateStr: string;
+  shiftName: ShiftType | "Off";
+  hours: string;
+  ward: string;
+  location: string;
+  dutyType: "Clinical Care" | "Emergency On-Call" | "OR Surgery" | "OPD Clinic" | "Day Off";
 }
 
 export interface ActivityEntry {
@@ -290,6 +396,8 @@ export interface ActivityEntry {
     | "Pharmacist"
     | "Ward Staff"
     | "Nurse"
+    | "Accountant"
+    | "Admin"
     | "Staff";
   message: string;
   category: "triage" | "wards" | "pharmacy" | "nursing" | "system";

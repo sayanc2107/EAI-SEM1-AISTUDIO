@@ -42,6 +42,7 @@ service cloud.firestore {
           || (email == 'nurse@medcore.org' && role == 'nurse' && staffId == 'NUR-01')
           || (email == 'rhea.thomas@medcore.org' && role == 'nurse' && staffId == 'NUR-02')
           || (email == 'anita.joshi@medcore.org' && role == 'nurse' && staffId == 'NUR-03')
+          || (email == 'accountant@medcore.org' && role == 'accountant' && staffId == 'ACC-01')
         );
     }
 
@@ -95,7 +96,7 @@ service cloud.firestore {
     }
 
     function isValidRole(r) {
-      return r in ['admin', 'doctor', 'pharmacist', 'ward_staff', 'nurse'];
+      return r in ['admin', 'doctor', 'pharmacist', 'ward_staff', 'nurse', 'accountant'];
     }
 
     function isValidDoctorStatus(s) {
@@ -366,9 +367,9 @@ service cloud.firestore {
     match /staffDirectory/{entryId} {
       allow get: if isVerified()
         && isValidId(entryId)
-        && (isAdmin() || existing().email == request.auth.token.email);
+        && (isAdmin() || hasRole('accountant') || existing().email == request.auth.token.email);
       allow list: if isVerified()
-        && (isBootstrappedAdmin() || resource.data.email == request.auth.token.email);
+        && (isBootstrappedAdmin() || hasRole('accountant') || resource.data.email == request.auth.token.email);
 
       allow create: if isValidId(entryId)
         && isValidStaffDirectoryEntry(incoming())
@@ -377,10 +378,11 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && (
           isAdmin()
+          || hasRole('accountant')
           || isPredefinedSampleStaff(incoming().email, incoming().role, entryId)
         );
 
-      allow update: if isAdmin()
+      allow update: if (isAdmin() || hasRole('accountant'))
         && isValidId(entryId)
         && isValidStaffDirectoryEntry(incoming())
         && incoming().createdAt == existing().createdAt
@@ -535,9 +537,9 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /inventory/{itemId} {
       allow get: if isVerified() && isValidId(itemId)
-        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor'));
+        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor') || hasRole('accountant'));
       allow list: if isVerified()
-        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor'))
+        && (isAdmin() || hasRole('pharmacist') || hasRole('doctor') || hasRole('accountant'))
         && resource.data.category in ['Medication', 'Critical Care', 'Diagnostics', 'PPE'];
 
       allow create: if isVerified()
@@ -609,10 +611,10 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     match /pharmacySales/{saleId} {
       allow get: if isVerified() && isValidId(saleId)
-        && (isAdmin() || hasRole('pharmacist'));
+        && (isAdmin() || hasRole('pharmacist') || hasRole('accountant'));
       allow list: if isVerified()
-        && (isAdmin() || hasRole('pharmacist'))
-        && resource.data.paymentMethod in ['UPI', 'Card', 'Cash', 'Insurance'];
+        && (isAdmin() || hasRole('pharmacist') || hasRole('accountant'))
+        && resource.data.paymentMethod in ['UPI', 'Card', 'Cash', 'Insurance', 'Split'];
 
       allow create: if isVerified()
         && isValidId(saleId)
@@ -620,9 +622,9 @@ service cloud.firestore {
         && incoming().id == saleId
         && incoming().pharmacistUid == request.auth.uid
         && incoming().createdAt == request.time
-        && (isAdmin() || hasRole('pharmacist'));
+        && (hasRole('pharmacist') || hasRole('accountant'));
 
-      allow update: if isAdmin()
+      allow update: if (isAdmin() || hasRole('accountant'))
         && isValidId(saleId)
         && isValidPharmacySale(incoming())
         && incoming().id == existing().id
@@ -632,7 +634,56 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------
-    // 10. /activityLogs/{logId} — Operational Audit Trail
+    // 10. /hospitalSales/{saleId} — Departmental Financials (Admin & Accountant)
+    // ------------------------------------------------------------------
+    match /hospitalSales/{saleId} {
+      allow get, list: if isVerified() && (isAdmin() || hasRole('accountant'));
+      allow create, update, delete: if isVerified() && (isAdmin() || hasRole('accountant'));
+    }
+
+    // ------------------------------------------------------------------
+    // 11. /payrollRecords/{payrollId} — Staff Payroll (Admin, Accountant & Self)
+    // ------------------------------------------------------------------
+    match /payrollRecords/{payrollId} {
+      allow get, list: if isVerified();
+      allow create, update, delete: if isVerified() && (isAdmin() || hasRole('accountant'));
+    }
+
+    // ------------------------------------------------------------------
+    // 12. /staffDuties/{dutyId} — Shift Duties
+    // ------------------------------------------------------------------
+    match /staffDuties/{dutyId} {
+      allow get, list: if isVerified();
+      allow create, update, delete: if isVerified();
+    }
+
+    // ------------------------------------------------------------------
+    // 13. /attendanceRecords/{recordId} — Attendance Clock In / Out
+    // ------------------------------------------------------------------
+    match /attendanceRecords/{recordId} {
+      allow get, list: if isVerified();
+      allow create, update: if isVerified();
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------------
+    // 14. /internalMails/{mailId} — Internal Hospital Mail System
+    // ------------------------------------------------------------------
+    match /internalMails/{mailId} {
+      allow get, list: if isVerified();
+      allow create, update, delete: if isVerified();
+    }
+
+    // ------------------------------------------------------------------
+    // 15. /helpdeskTickets/{ticketId} — Issue Raising & Helpdesk
+    // ------------------------------------------------------------------
+    match /helpdeskTickets/{ticketId} {
+      allow get, list: if isVerified();
+      allow create, update, delete: if isVerified();
+    }
+
+    // ------------------------------------------------------------------
+    // 16. /activityLogs/{logId} — Operational Audit Trail
     // ------------------------------------------------------------------
     match /activityLogs/{logId} {
       allow get: if isVerified() && isValidId(logId) && isAdmin();

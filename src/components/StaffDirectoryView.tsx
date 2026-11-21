@@ -2,15 +2,19 @@ import React, { useState } from "react";
 import {
   CheckCircle2,
   Database,
+  Edit2,
   ExternalLink,
   KeyRound,
+  PhoneCall,
   RefreshCw,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 import { useHospital } from "../context/HospitalContext";
 import { SAMPLE_STAFF_CREDENTIALS } from "../data/seedData";
 import type { UserRole } from "../types/hospital";
 import firebaseConfig from "../../firebase-applet-config.json";
+import { CallDoctorModal } from "./CallDoctorModal";
 
 const FIREBASE_AUTH_PROVIDERS_URL = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/providers`;
 
@@ -27,7 +31,10 @@ export function StaffDirectoryView() {
   const {
     staffDirectory,
     saveStaffDirectoryEntry,
+    deleteStaffMember,
     provisionAllSampleStaffAccounts,
+    isActualAdmin,
+    pushToast,
   } = useHospital();
 
   const [email, setEmail] = useState("");
@@ -37,6 +44,7 @@ export function StaffDirectoryView() {
   const [department, setDepartment] = useState("Emergency Medicine");
   const [initialPassword, setInitialPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showCallDoctor, setShowCallDoctor] = useState(false);
 
   const [provisioningAll, setProvisioningAll] = useState(false);
   const [provisionSummary, setProvisionSummary] = useState<{
@@ -45,6 +53,34 @@ export function StaffDirectoryView() {
     authExisting: number;
     providerDisabled: boolean;
   } | null>(null);
+
+  function handleFullNameChange(val: string) {
+    setFullName(val);
+    const cleaned = val
+      .replace(/^(dr\.|dr|rn|prof\.|nurse|cpa)\s+/i, "")
+      .trim()
+      .toLowerCase();
+    const parts = cleaned.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const first = parts[0].replace(/[^a-z0-9]/g, "");
+      const last = parts[parts.length - 1].replace(/[^a-z0-9]/g, "");
+      if (first && last) {
+        setEmail(`${first}.${last}@medcore.org`);
+      }
+    } else if (parts.length === 1) {
+      const single = parts[0].replace(/[^a-z0-9]/g, "");
+      if (single) {
+        setEmail(`${single}@medcore.org`);
+      }
+    }
+  }
+
+  async function handleDelete(staffId: string, name: string) {
+    if (!window.confirm(`Are you sure you want to remove employee "${name}" (${staffId}) from MedCore AI?`)) {
+      return;
+    }
+    await deleteStaffMember(staffId);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -141,105 +177,113 @@ export function StaffDirectoryView() {
           </div>
         )}
 
-        {/* Add Custom Staff Member (Firestore Role + Optional Email/Password Auth Creation) */}
-        <form
-          onSubmit={handleSubmit}
-          className="p-4 rounded-lg bg-[#0B1120] border border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3"
-        >
-          <div className="lg:col-span-2">
-            <label className="block text-xs text-slate-400 mb-1">
-              Staff Email (@medcore.org or Google)
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="new.doctor@medcore.org"
-              className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Full Name</label>
-            <input
-              type="text"
-              required
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Dr. Vikram Shah"
-              className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Database Role</label>
-            <select
-              value={role}
-              onChange={(e) => {
-                const nextRole = e.target.value as UserRole;
-                setRole(nextRole);
-                if (nextRole === "doctor") setLinkedStaffId("DOC-07");
-                if (nextRole === "pharmacist") setLinkedStaffId("PHM-02");
-                if (nextRole === "ward_staff") setLinkedStaffId("WRD-02");
-                if (nextRole === "nurse") setLinkedStaffId("NUR-03");
-                if (nextRole === "admin") setLinkedStaffId("ADM-02");
-              }}
-              className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100"
-            >
-              {ROLE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Linked Staff ID</label>
-            <input
-              type="text"
-              required
-              value={linkedStaffId}
-              onChange={(e) => setLinkedStaffId(e.target.value)}
-              placeholder="DOC-07 / PHM-02"
-              className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Department</label>
-            <input
-              type="text"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="Emergency / Pharmacy"
-              className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100"
-            />
-          </div>
-          <div className="lg:col-span-3">
-            <label className="block text-xs text-slate-400 mb-1">
-              Login Password (min 6 chars — optional for Google-only users)
-            </label>
-            <div className="relative">
-              <KeyRound className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+        {/* Add Custom Staff Member — strictly restricted to Hospital Admin */}
+        {isActualAdmin ? (
+          <form
+            onSubmit={handleSubmit}
+            className="p-4 rounded-lg bg-[#0B1120] border border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3"
+          >
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Full Name</label>
               <input
-                type="password"
-                minLength={6}
-                value={initialPassword}
-                onChange={(e) => setInitialPassword(e.target.value)}
-                placeholder="e.g., Doctor@123"
-                className="w-full pl-8 pr-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                type="text"
+                required
+                value={fullName}
+                onChange={(e) => handleFullNameChange(e.target.value)}
+                placeholder="Dr. Vikram Shah"
+                className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
               />
             </div>
+            <div className="lg:col-span-2">
+              <label className="block text-xs text-slate-400 mb-1">
+                Auto-Generated Staff Email
+              </label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="firstname.lastname@medcore.org"
+                className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100 focus:border-sky-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Database Role</label>
+              <select
+                value={role}
+                onChange={(e) => {
+                  const nextRole = e.target.value as UserRole;
+                  setRole(nextRole);
+                  if (nextRole === "doctor") setLinkedStaffId("DOC-07");
+                  if (nextRole === "pharmacist") setLinkedStaffId("PHM-02");
+                  if (nextRole === "ward_staff") setLinkedStaffId("WRD-02");
+                  if (nextRole === "nurse") setLinkedStaffId("NUR-03");
+                  if (nextRole === "accountant") setLinkedStaffId("ACC-02");
+                  if (nextRole === "admin") setLinkedStaffId("ADM-02");
+                }}
+                className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100"
+              >
+                {ROLE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Linked Staff ID</label>
+              <input
+                type="text"
+                required
+                value={linkedStaffId}
+                onChange={(e) => setLinkedStaffId(e.target.value)}
+                placeholder="DOC-07 / PHM-02"
+                className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs font-mono text-slate-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Department</label>
+              <input
+                type="text"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="Emergency / Pharmacy / Accounts"
+                className="w-full px-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100"
+              />
+            </div>
+            <div className="lg:col-span-3">
+              <label className="block text-xs text-slate-400 mb-1">
+                Login Password (min 6 chars)
+              </label>
+              <div className="relative">
+                <KeyRound className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="password"
+                  minLength={6}
+                  value={initialPassword}
+                  onChange={(e) => setInitialPassword(e.target.value)}
+                  placeholder="e.g., Doctor@123"
+                  className="w-full pl-8 pr-3 py-2 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-100 focus:border-sky-500 focus:outline-none"
+                />
+              </div>
+            </div>
+            <div className="lg:col-span-3 flex items-end justify-end">
+              <button
+                type="submit"
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-60 text-slate-950 text-xs font-semibold cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                {saving ? "Registering Employee..." : "Add Employee & Provision Credentials"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs text-slate-400 flex items-center gap-2">
+            <span className="text-amber-400 font-semibold">Staff Management Policy:</span>
+            New hospital employee accounts can only be added by the Hospital Administrator. Accountants configure salary breakdowns and bank account details.
           </div>
-          <div className="lg:col-span-3 flex items-end justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-60 text-slate-950 text-xs font-semibold cursor-pointer"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              {saving ? "Saving to Database..." : "Save Staff & Create Login"}
-            </button>
-          </div>
-        </form>
+        )}
 
         {/* Live Firestore Staff Directory Table */}
         <div className="overflow-x-auto">
@@ -250,7 +294,8 @@ export function StaffDirectoryView() {
                 <th className="py-3 px-3 font-medium">Registered Email ID</th>
                 <th className="py-3 px-3 font-medium">Sample Default Password</th>
                 <th className="py-3 px-3 font-medium">Assigned Role</th>
-                <th className="py-3 pl-3 font-medium">Department</th>
+                <th className="py-3 px-3 font-medium">Department</th>
+                <th className="py-3 pl-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70 text-sm">
@@ -275,8 +320,44 @@ export function StaffDirectoryView() {
                     <td className="py-3 px-3 text-xs font-semibold text-sky-400 capitalize">
                       {entry.role.replace("_", " ")}
                     </td>
-                    <td className="py-3 pl-3 text-xs text-slate-400">
+                    <td className="py-3 px-3 text-xs text-slate-400">
                       {entry.department}
+                    </td>
+                    <td className="py-3 pl-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {entry.role === "doctor" && (
+                          <button
+                            type="button"
+                            onClick={() => setShowCallDoctor(true)}
+                            className="p-1.5 rounded bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 transition-colors cursor-pointer"
+                            title="Call Doctor"
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEmail(entry.email);
+                            setFullName(entry.fullName);
+                            setRole(entry.role);
+                            setLinkedStaffId(entry.linkedStaffId);
+                            setDepartment(entry.department);
+                          }}
+                          className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                          title="Edit Staff Details"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(entry.linkedStaffId, entry.fullName)}
+                          className="p-1.5 rounded bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 text-rose-400 transition-colors cursor-pointer"
+                          title="Remove Employee from Directory"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -285,6 +366,12 @@ export function StaffDirectoryView() {
           </table>
         </div>
       </section>
+
+      <CallDoctorModal
+        isOpen={showCallDoctor}
+        onClose={() => setShowCallDoctor(false)}
+        callerRole="admin"
+      />
     </div>
   );
 }

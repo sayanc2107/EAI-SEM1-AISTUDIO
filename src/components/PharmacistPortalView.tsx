@@ -8,6 +8,7 @@ import {
   FileSpreadsheet,
   Minus,
   PackagePlus,
+  PhoneCall,
   Plus,
   Printer,
   Receipt,
@@ -27,16 +28,19 @@ import type {
   PharmacySale,
   PrescriptionLineItem,
   PrescriptionRequest,
+  SplitPaymentDetail,
 } from "../types/hospital";
 import {
   downloadStockTemplateExcel,
+  exportCurrentStockToExcel,
   exportSalesToExcel,
   parseStockExcelFile,
   type ParsedStockRow,
 } from "../utils/excelUtils";
 import { exportPharmacyBillToPdf } from "../utils/pdfBillUtils";
+import { CallDoctorModal } from "./CallDoctorModal";
 
-type PharmacyTab = "queue_billing" | "stock_excel" | "sales_ledger" | "ai_insights";
+type PharmacyTab = "queue_billing" | "stock_excel" | "sales_ledger" | "ai_insights" | "add_stock";
 
 const CATEGORIES: InventoryCategory[] = [
   "Medication",
@@ -45,7 +49,7 @@ const CATEGORIES: InventoryCategory[] = [
   "PPE",
 ];
 
-const PAYMENT_METHODS: PaymentMethod[] = ["UPI", "Card", "Cash", "Insurance"];
+const PAYMENT_METHODS: PaymentMethod[] = ["UPI", "Card", "Cash", "Insurance", "Split"];
 
 function formatINR(amount: number): string {
   return `₹${Math.round(amount).toLocaleString("en-IN")}`;
@@ -54,7 +58,7 @@ function formatINR(amount: number): string {
 export function PharmacistPortalView({
   activeSubTab,
 }: {
-  activeSubTab?: "overview" | "prescriptions" | "inventory" | "billing";
+  activeSubTab?: "overview" | "prescriptions" | "inventory" | "billing" | "add_stock";
 } = {}) {
   const {
     myShift,
@@ -78,7 +82,9 @@ export function PharmacistPortalView({
         ? "stock_excel"
         : activeSubTab === "billing"
           ? "sales_ledger"
-          : "queue_billing";
+          : activeSubTab === "add_stock"
+            ? "add_stock"
+            : "queue_billing";
 
   const [tab, setTab] = useState<PharmacyTab>(initialTab);
 
@@ -87,13 +93,20 @@ export function PharmacistPortalView({
     else if (activeSubTab === "inventory") setTab("stock_excel");
     else if (activeSubTab === "billing") setTab("sales_ledger");
     else if (activeSubTab === "prescriptions") setTab("queue_billing");
+    else if (activeSubTab === "add_stock") setTab("add_stock");
   }, [activeSubTab]);
+
+  const [showCallDoctor, setShowCallDoctor] = useState(false);
 
   // Billing Desk state
   const [activeRxId, setActiveRxId] = useState<string | null>(null);
   const [billPatientName, setBillPatientName] = useState("");
   const [billDoctorName, setBillDoctorName] = useState("Walk-In");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("UPI");
+  const [splitMethod1, setSplitMethod1] = useState<"UPI" | "Card" | "Cash">("Cash");
+  const [splitAmount1, setSplitAmount1] = useState("");
+  const [splitMethod2, setSplitMethod2] = useState<"UPI" | "Card" | "Cash">("UPI");
+  const [splitAmount2, setSplitAmount2] = useState("");
   const [billItems, setBillItems] = useState<PrescriptionLineItem[]>([]);
   const [selectedAddItemId, setSelectedAddItemId] = useState("");
   const [selectedAddQty, setSelectedAddQty] = useState("1");
@@ -220,6 +233,27 @@ export function PharmacistPortalView({
       return;
     }
 
+    let splitDetails: SplitPaymentDetail | undefined = undefined;
+    if (paymentMethod === "Split") {
+      const a1 = parseFloat(splitAmount1) || 0;
+      const a2 = parseFloat(splitAmount2) || 0;
+      const totalAmount = billItems.reduce((acc, it) => acc + it.quantity * it.unitPrice, 0);
+      if (a1 + a2 !== totalAmount) {
+        pushToast(
+          "Split Payment Mismatch",
+          `Split amounts (₹${a1} + ₹${a2} = ₹${a1 + a2}) must equal total bill amount (₹${totalAmount})`,
+          "warning"
+        );
+        return;
+      }
+      splitDetails = {
+        method1: splitMethod1,
+        amount1: a1,
+        method2: splitMethod2,
+        amount2: a2,
+      };
+    }
+
     setSubmittingBill(true);
     try {
       const sale = await createPharmacyBill({
@@ -228,6 +262,7 @@ export function PharmacistPortalView({
         doctorName: billDoctorName.trim() || "Walk-In",
         items: billItems,
         paymentMethod,
+        splitPayments: splitDetails,
       });
       if (sale) {
         setLastGeneratedSale(sale);
@@ -431,6 +466,14 @@ export function PharmacistPortalView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowCallDoctor(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition-colors whitespace-nowrap cursor-pointer"
+          >
+            <PhoneCall className="w-3.5 h-3.5" />
+            Call Doctor
+          </button>
           {inventory.length < 16 && (
             <button
               type="button"
@@ -733,10 +776,56 @@ export function PharmacistPortalView({
                             : "border-slate-800 text-slate-400 hover:text-slate-200"
                         }`}
                       >
-                        {pm}
+                        {pm === "Split" ? "Split Payment" : pm}
                       </button>
                     ))}
                   </div>
+
+                  {paymentMethod === "Split" && (
+                    <div className="mt-2.5 p-2.5 rounded-lg bg-amber-950/20 border border-amber-800/40 space-y-2">
+                      <span className="text-[11px] font-semibold text-amber-300 block">
+                        Split Payment Breakdown (Total: {formatINR(billTotal)})
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div className="flex gap-1.5">
+                          <select
+                            value={splitMethod1}
+                            onChange={(e) => setSplitMethod1(e.target.value as any)}
+                            className="px-2 py-1 rounded bg-[#0B1120] border border-slate-700 text-slate-200 text-xs"
+                          >
+                            <option value="Cash">Cash</option>
+                            <option value="UPI">UPI</option>
+                            <option value="Card">Card</option>
+                          </select>
+                          <input
+                            type="number"
+                            placeholder="Amount 1 (₹)"
+                            value={splitAmount1}
+                            onChange={(e) => setSplitAmount1(e.target.value)}
+                            className="w-full px-2 py-1 rounded bg-[#0B1120] border border-slate-700 text-slate-100 font-mono text-xs"
+                          />
+                        </div>
+                        <div className="flex gap-1.5">
+                          <select
+                            value={splitMethod2}
+                            onChange={(e) => setSplitMethod2(e.target.value as any)}
+                            className="px-2 py-1 rounded bg-[#0B1120] border border-slate-700 text-slate-200 text-xs"
+                          >
+                            <option value="UPI">UPI</option>
+                            <option value="Card">Card</option>
+                            <option value="Cash">Cash</option>
+                          </select>
+                          <input
+                            type="number"
+                            placeholder="Amount 2 (₹)"
+                            value={splitAmount2}
+                            onChange={(e) => setSplitAmount2(e.target.value)}
+                            className="w-full px-2 py-1 rounded bg-[#0B1120] border border-slate-700 text-slate-100 font-mono text-xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="text-left sm:text-right">
@@ -832,6 +921,15 @@ export function PharmacistPortalView({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => exportCurrentStockToExcel(inventory)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition-colors cursor-pointer"
+                  title="Export live inventory register as Excel (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  Export Live Stock (.xlsx)
+                </button>
                 <button
                   type="button"
                   onClick={downloadStockTemplateExcel}
@@ -1382,6 +1480,12 @@ export function PharmacistPortalView({
           )}
         </section>
       )}
+
+      <CallDoctorModal
+        isOpen={showCallDoctor}
+        onClose={() => setShowCallDoctor(false)}
+        callerRole="pharmacist"
+      />
     </div>
   );
 }

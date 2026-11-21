@@ -22,7 +22,6 @@ export function LoginView() {
   const {
     authLoading,
     accessDeniedEmail,
-    loginWithGoogle,
     loginWithEmailPassword,
     logout,
   } = useHospital();
@@ -122,7 +121,7 @@ export function LoginView() {
                   Hospital Staff Sign In
                 </h2>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Sign in with your hospital Email ID & Password or Google account. Your role and
+                  Sign in with your hospital Staff Email ID & Password. Your clinical role and
                   shift permissions are fetched directly from the database.
                 </p>
               </div>
@@ -216,30 +215,6 @@ export function LoginView() {
                   )}
                 </button>
               </form>
-
-              {/* Divider */}
-              <div className="relative flex items-center py-0.5">
-                <div className="flex-grow border-t border-slate-800" />
-                <span className="shrink mx-3 text-[11px] uppercase tracking-wider text-slate-500">
-                  or continue with
-                </span>
-                <div className="flex-grow border-t border-slate-800" />
-              </div>
-
-              {/* Google Sign-In Button */}
-              <button
-                type="button"
-                onClick={loginWithGoogle}
-                className="w-full inline-flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg border border-slate-700 hover:border-slate-600 hover:bg-slate-800/70 text-slate-100 text-sm font-medium transition-colors cursor-pointer"
-              >
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M21.35 11.1h-9.18v2.92h5.27c-.23 1.48-1.72 4.34-5.27 4.34-3.17 0-5.76-2.62-5.76-5.86s2.59-5.86 5.76-5.86c1.81 0 3.02.77 3.71 1.43l2.53-2.44C16.79 4.1 14.69 3.2 12.17 3.2 7.21 3.2 3.2 7.21 3.2 12.5s4.01 9.3 8.97 9.3c5.18 0 8.62-3.64 8.62-8.77 0-.59-.07-1.04-.14-1.93z"
-                  />
-                </svg>
-                Sign in with Google
-              </button>
 
               {/* Sample @medcore.org Staff Credentials Reference (Click to Auto-Fill ID & Password) */}
               <div className="pt-4 border-t border-slate-800/90 space-y-2.5">
